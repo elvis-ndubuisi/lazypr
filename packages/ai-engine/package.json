@@ -1,0 +1,23 @@
+{
+  "name": "@lazypr/ai-engine",
+  "version": "0.1.0",
+  "description": "Multi-provider LLM orchestration",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "module": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "openai": "^4.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20"
+  }
+}

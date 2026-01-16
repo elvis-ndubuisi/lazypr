@@ -1,0 +1,19 @@
+{
+  "name": "@lazypr/config-presets",
+  "version": "0.1.0",
+  "description": "Pre-defined prompt templates",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "module": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20"
+  }
+}

@@ -4,6 +4,11 @@ on:
     branches: [main, test-gemini]
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   lazypr-test:
     runs-on: ubuntu-latest

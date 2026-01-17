@@ -37,3 +37,12 @@ jobs:
           echo ""
           echo "All packages built:"
           ls -la packages/*/dist/ 2>/dev/null || echo "No dist folders in packages"
+
+      - name: Run lazypr with Gemini (if API key available)
+        if: ${{ github.event_name == 'pull_request' && secrets.GEMINI_API_KEY != '' }}
+        uses: ./apps/github-action
+        with:
+          provider: gemini
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          template: default
+          github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -30,7 +30,7 @@ jobs:
         run: bun run build
 
       - name: Run lazypr with Gemini
-        uses: ./
+        uses: ./apps/github-action
         with:
           provider: gemini
           api_key: ${{ secrets.GEMINI_API_KEY }}

@@ -1,3 +1,4 @@
+import * as core from "@actions/core";
 import type { Octokit } from "@octokit/rest";
 
 const CUSTOM_TEMPLATE_PATHS = [
@@ -30,7 +31,7 @@ export async function loadCustomTemplate(
     } catch (error) {
       const octokitError = error as { status?: number };
       if (octokitError.status !== 404) {
-        console.warn(`Warning: Failed to load template from ${templatePath}: ${error}`);
+        core.warning(`Failed to load template from ${templatePath}: ${error}`);
       }
     }
   }

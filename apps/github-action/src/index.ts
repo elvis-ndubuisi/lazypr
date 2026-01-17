@@ -20,26 +20,52 @@ import { ensureLabelsExist, getRiskLabelEmoji, updateRiskLabels } from "./label-
 import { formatChecklistForMarkdown, getCurrentPRBody, updatePRDescription } from "./pr-updater.js";
 import { loadCustomTemplate, sanitizeTemplate, validateTemplate } from "./template-loader.js";
 
+/**
+ * Input configuration for the lazypr GitHub Action.
+ */
 interface Inputs {
+  /** API key for the LLM provider (OpenAI, Anthropic, or Gemini) */
   apiKey: string;
+  /** LLM model to use (e.g., "gpt-4-turbo", "gemini-2.5-flash") */
   model: string;
+  /** LLM provider to use ("openai", "anthropic", or "gemini") */
   provider: "openai" | "anthropic";
+  /** Template name to use ("default", "security", "concise", "verbose") */
   template: string;
+  /** GitHub API token for authenticated requests */
   githubToken: string;
+  /** Whether to enable loading custom templates from the repository */
   customTemplateEnabled: boolean;
 }
 
+/**
+ * Context information about the current Pull Request.
+ */
 interface PRContext {
+  /** Repository owner (username or organization) */
   owner: string;
+  /** Repository name */
   repo: string;
+  /** PR number */
   pullNumber: number;
+  /** SHA of the base branch */
   baseSha: string;
+  /** SHA of the head branch */
   headSha: string;
+  /** PR title */
   title: string;
+  /** PR body/description */
   body: string;
+  /** PR author's username */
   author: string;
 }
 
+/**
+ * Reads and validates action inputs from GitHub Actions workflow.
+ *
+ * @returns Inputs object with all required action configuration
+ * @throws Error if required inputs are missing
+ */
 function getInputs(): Inputs {
   return {
     apiKey: core.getInput("api_key", { required: true }),
@@ -51,6 +77,12 @@ function getInputs(): Inputs {
   };
 }
 
+/**
+ * Extracts PR context from the GitHub Actions event payload.
+ *
+ * @returns PRContext with repository and PR details
+ * @throws Error if not running on a pull request event
+ */
 function getPRContext(): PRContext {
   const { owner, repo } = github.context.repo;
   const pullRequest = github.context.payload.pull_request;
@@ -71,13 +103,31 @@ function getPRContext(): PRContext {
   };
 }
 
-function createProvider(inputs: Inputs): LLMProvider {
+/**
+ * Creates an LLM provider based on the configured provider type.
+ *
+ * @param inputs - The action inputs containing provider configuration
+ * @returns Configured LLMProvider instance
+ */
+function _createProvider(inputs: Inputs): LLMProvider {
   if (inputs.provider === "anthropic") {
     return createAnthropicProvider(inputs.apiKey);
   }
   return createOpenAIProvider(inputs.apiKey);
 }
 
+/**
+ * Main execution function for the lazypr GitHub Action.
+ *
+ * This function orchestrates the entire PR summary generation workflow:
+ * 1. Reads action inputs and PR context
+ * 2. Fetches the git diff from GitHub
+ * 3. Generates a summary using the configured LLM provider
+ * 4. Detects ghost commits
+ * 5. Updates the PR description with the summary and risk labels
+ *
+ * @returns Promise that resolves when the action completes
+ */
 async function run(): Promise<void> {
   const startTime = Date.now();
 
@@ -88,12 +138,7 @@ async function run(): Promise<void> {
     const prContext = getPRContext();
 
     core.info(
-      "Processing PR #" +
-        String(prContext.pullNumber) +
-        " in " +
-        prContext.owner +
-        "/" +
-        prContext.repo,
+      `Processing PR #${String(prContext.pullNumber)} in ${prContext.owner}/${prContext.repo}`,
     );
 
     const octokit = new Octokit({ auth: inputs.githubToken });
@@ -118,7 +163,7 @@ async function run(): Promise<void> {
     }
 
     const changedFiles = extractChangedFiles(diff);
-    core.info("Changed files: " + String(changedFiles.length));
+    core.info(`Changed files: ${String(changedFiles.length)}`);
 
     let templateContent: string | undefined;
     let systemPrompt: string | undefined;
@@ -133,7 +178,7 @@ async function run(): Promise<void> {
           core.info("Using custom template from repository");
           templateContent = sanitizeTemplate(customTemplate);
         } else {
-          core.warning("Custom template is invalid: " + validation.errors.join(", "));
+          core.warning(`Custom template is invalid: ${validation.errors.join(", ")}`);
         }
       }
     }
@@ -142,7 +187,7 @@ async function run(): Promise<void> {
       const template = getTemplate(inputs.template);
       templateContent = template.template;
       systemPrompt = template.systemPrompt;
-      core.info("Using built-in template: " + template.name);
+      core.info(`Using built-in template: ${template.name}`);
     }
 
     core.info("Generating PR summary with AI...");
@@ -157,7 +202,7 @@ async function run(): Promise<void> {
       systemPrompt,
     });
 
-    core.info("Summary generated. Risk level: " + result.riskLevel);
+    core.info(`Summary generated. Risk level: ${result.riskLevel}`);
 
     const ghostCommitResults = await detectGhostCommits(diff, inputs.githubToken, prContext);
 
@@ -200,20 +245,30 @@ async function run(): Promise<void> {
         .filter((r) => r.detected)
         .map((r) => {
           const sha = r.sha.substring(0, 7);
-          return "  - " + sha + ": " + (r.reason || "Message mismatch");
+          return `  - ${sha}: ${r.reason || "Message mismatch"}`;
         })
         .join("\n");
-      core.warning("Potential ghost commits detected:\n" + ghostWarnings);
+      core.warning(`Potential ghost commits detected:\n${ghostWarnings}`);
     }
 
     const duration = Date.now() - startTime;
-    core.info("lazypr PR Summary generation complete! (took " + String(duration) + "ms)");
+    core.info(`lazypr PR Summary generation complete! (took ${String(duration)}ms)`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    core.setFailed("Error generating PR summary: " + errorMessage);
+    core.setFailed(`Error generating PR summary: ${errorMessage}`);
   }
 }
 
+/**
+ * Detects ghost commits in the PR diff.
+ *
+ * Ghost commits are commits where the message doesn't match the actual code changes.
+ *
+ * @param diff - The git diff to analyze
+ * @param token - GitHub API token
+ * @param prContext - PR context information
+ * @returns Array of ghost commit detection results
+ */
 async function detectGhostCommits(
   diff: string,
   token: string,
@@ -228,13 +283,20 @@ async function detectGhostCommits(
 
     return results;
   } catch (error) {
-    core.warning("Failed to detect ghost commits: " + error);
+    core.warning(`Failed to detect ghost commits: ${error}`);
     return [];
   }
 }
 
+/**
+ * Extracts commit information from the GitHub PR payload.
+ *
+ * @param prContext - PR context information
+ * @param _token - GitHub API token (currently unused)
+ * @returns Array of commits with SHA and message
+ */
 function extractCommitsFromGitHub(
-  prContext: PRContext,
+  _prContext: PRContext,
   _token: string,
 ): Array<{ sha: string; message: string }> {
   const commits: Array<{ sha: string; message: string }> = [];
@@ -244,7 +306,7 @@ function extractCommitsFromGitHub(
   if (pr && typeof pr.commits === "number") {
     for (let i = 0; i < Math.min(pr.commits, 100); i++) {
       commits.push({
-        sha: "commit-" + String(i),
+        sha: `commit-${String(i)}`,
         message: "Commit extraction requires GitHub API",
       });
     }
@@ -253,6 +315,14 @@ function extractCommitsFromGitHub(
   return commits;
 }
 
+/**
+ * Formats the PR summary output with risk level, checklist, and ghost commit info.
+ *
+ * @param result - The summary generation result
+ * @param ghostCommits - Array of ghost commit detection results
+ * @param _hasGhostCommits - Whether any ghost commits were detected
+ * @returns Formatted markdown output for the PR comment
+ */
 function formatOutput(
   result: { summary: string; riskLevel: string; impactScore: number; checklist: string[] },
   ghostCommits: Array<{ sha: string; message: string; detected: boolean; reason?: string }>,
@@ -261,17 +331,10 @@ function formatOutput(
   let output = result.summary;
 
   const riskEmoji = getRiskLabelEmoji(result.riskLevel as RiskLevel);
-  output +=
-    "\n\n**Risk Level:** " +
-    riskEmoji +
-    " " +
-    result.riskLevel +
-    " (" +
-    String(result.impactScore) +
-    "/100)";
+  output += `\n\n**Risk Level:** ${riskEmoji} ${result.riskLevel} (${String(result.impactScore)}/100)`;
 
   if (result.checklist && result.checklist.length > 0) {
-    output += "\n\n" + formatChecklistForMarkdown(result.checklist);
+    output += `\n\n${formatChecklistForMarkdown(result.checklist)}`;
   }
 
   const detectedGhostCommits = ghostCommits.filter((c) => c.detected);
@@ -279,7 +342,7 @@ function formatOutput(
     output += "\n\n### Potential Ghost Commits\n";
     for (const commit of detectedGhostCommits) {
       const sha = commit.sha.substring(0, 7);
-      output += "- **" + sha + "**: " + (commit.reason || "Message mismatch") + "\n";
+      output += `- **${sha}**: ${commit.reason || "Message mismatch"}\n`;
     }
   }
 
@@ -287,5 +350,5 @@ function formatOutput(
 }
 
 run().catch((error) => {
-  core.setFailed("Unhandled error: " + (error instanceof Error ? error.message : String(error)));
+  core.setFailed(`Unhandled error ${error instanceof Error ? error.message : String(error)}`);
 });

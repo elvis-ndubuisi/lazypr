@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/**
+ * Schema for validating GitHub Pull Request metadata returned from the API.
+ */
 export const PRMetadataSchema = z.object({
   owner: z.string(),
   repo: z.string(),
@@ -9,15 +12,27 @@ export const PRMetadataSchema = z.object({
   author: z.string(),
 });
 
+/**
+ * Represents metadata about a GitHub Pull Request.
+ */
 export type PRMetadata = z.infer<typeof PRMetadataSchema>;
 
+/**
+ * Schema for validating individual commit information.
+ */
 export const CommitSchema = z.object({
   sha: z.string(),
   message: z.string(),
 });
 
+/**
+ * Represents a Git commit with its SHA hash and commit message.
+ */
 export type Commit = z.infer<typeof CommitSchema>;
 
+/**
+ * Schema for validating ghost commit detection results.
+ */
 export const GhostCommitResultSchema = z.object({
   sha: z.string(),
   message: z.string(),
@@ -25,8 +40,14 @@ export const GhostCommitResultSchema = z.object({
   reason: z.string().optional(),
 });
 
+/**
+ * Represents the result of a ghost commit detection analysis.
+ */
 export type GhostCommitResult = z.infer<typeof GhostCommitResultSchema>;
 
+/**
+ * Schema for validating options required to fetch a git diff.
+ */
 export const GitDiffOptionsSchema = z.object({
   owner: z.string(),
   repo: z.string(),
@@ -35,8 +56,28 @@ export const GitDiffOptionsSchema = z.object({
   token: z.string().optional(),
 });
 
+/**
+ * Options required to fetch a git diff between two commits.
+ */
 export type GitDiffOptions = z.infer<typeof GitDiffOptionsSchema>;
 
+/**
+ * Fetches the git diff between two commits from GitHub's compare API.
+ *
+ * @param options - The options containing repository details and commit SHAs
+ * @returns A promise that resolves to the raw git diff as a string
+ * @throws Error if the GitHub API request fails
+ *
+ * @example
+ * ```typescript
+ * const diff = await getGitDiff({
+ *   owner: "facebook",
+ *   repo: "react",
+ *   baseSha: "main",
+ *   headSha: "feature-branch"
+ * });
+ * ```
+ */
 export async function getGitDiff(options: GitDiffOptions): Promise<string> {
   const { owner, repo, baseSha, headSha, token } = GitDiffOptionsSchema.parse(options);
 
@@ -63,6 +104,22 @@ export async function getGitDiff(options: GitDiffOptions): Promise<string> {
   return diff;
 }
 
+/**
+ * Fetches metadata about a specific Pull Request from GitHub.
+ *
+ * @param owner - The repository owner (username or organization)
+ * @param repo - The repository name
+ * @param pullNumber - The PR number
+ * @param token - Optional GitHub API token for authenticated requests
+ * @returns A promise that resolves to the PR metadata
+ * @throws Error if the GitHub API request fails or the PR is not found
+ *
+ * @example
+ * ```typescript
+ * const metadata = await getPRMetadata("facebook", "react", 123);
+ * console.log(metadata.title);
+ * ```
+ */
 export async function getPRMetadata(
   owner: string,
   repo: string,
@@ -108,6 +165,21 @@ const PRApiResponseSchema = z.object({
   }),
 });
 
+/**
+ * Sanitizes a git diff by replacing sensitive or verbose patterns with generic placeholders.
+ *
+ * This function removes specific file paths, line numbers, and git metadata
+ * while preserving the code structure. Useful for preparing diffs for LLMs.
+ *
+ * @param diff - The raw git diff string to sanitize
+ * @returns The sanitized diff with paths and metadata replaced by placeholders
+ *
+ * @example
+ * ```typescript
+ * const sanitized = sanitizeDiff("diff --git a/src/auth.ts b/src/auth.ts");
+ * // Result: "diff --git a/... b/..."
+ * ```
+ */
 export function sanitizeDiff(diff: string): string {
   let sanitized = diff;
 
@@ -126,6 +198,20 @@ export function sanitizeDiff(diff: string): string {
   return sanitized;
 }
 
+/**
+ * Extracts a list of changed file paths from a git diff.
+ *
+ * Parses the diff looking for "+++ b/" lines to identify which files were modified.
+ *
+ * @param diff - The git diff string to parse
+ * @returns An array of unique file paths that were changed (deduplicated)
+ *
+ * @example
+ * ```typescript
+ * const files = extractChangedFiles("+++ b/src/auth.ts\n--- a/src/auth.ts");
+ * // Result: ["src/auth.ts"]
+ * ```
+ */
 export function extractChangedFiles(diff: string): string[] {
   const filePattern = /^\+\+\+ b\/(.+)$/gm;
   const files: string[] = [];
@@ -141,6 +227,15 @@ export function extractChangedFiles(diff: string): string[] {
   return [...new Set(files)];
 }
 
+/**
+ * Extracts commit information from a git diff.
+ *
+ * Parses the diff looking for "From [sha]" commit markers to identify
+ * which commits are included in the diff.
+ *
+ * @param diff - The git diff string to parse
+ * @returns An array of commit objects with SHA and message properties
+ */
 export function extractCommitsFromDiff(diff: string): Array<{ sha: string; message: string }> {
   const commits: Array<{ sha: string; message: string }> = [];
 
@@ -158,13 +253,43 @@ export function extractCommitsFromDiff(diff: string): Array<{ sha: string; messa
   return commits;
 }
 
+/**
+ * Detects "ghost commits" - commits where the commit message doesn't match the actual code changes.
+ *
+ * A ghost commit is detected when the keywords in the commit message don't appear
+ * in the diff of that commit. This helps identify misleading commit messages.
+ *
+ * @example
+ * ```typescript
+ * const detector = new GhostCommitDetector();
+ * const results = await detector.detect(diff, commits);
+ * results.forEach(r => {
+ *   if (r.detected) {
+ *     console.log(`Ghost commit: ${r.sha} - ${r.reason}`);
+ *   }
+ * });
+ * ```
+ */
 export class GhostCommitDetector {
   private readonly sensitivityThreshold: number;
 
+  /**
+   * Creates a new GhostCommitDetector instance.
+   *
+   * @param options - Configuration options
+   * @param options.sensitivityThreshold - Threshold for mismatch detection (0-1, default 0.3)
+   */
   constructor(options?: { sensitivityThreshold?: number }) {
     this.sensitivityThreshold = options?.sensitivityThreshold ?? 0.3;
   }
 
+  /**
+   * Analyzes commits to detect if their messages match the actual code changes.
+   *
+   * @param diff - The complete git diff containing all changes
+   * @param commits - Array of commits with SHA and message to analyze
+   * @returns Promise resolving to an array of detection results
+   */
   async detect(
     diff: string,
     commits: Array<{ sha: string; message: string }>,

@@ -1,3 +1,4 @@
+import * as core from "@actions/core";
 import type { Octokit } from "@octokit/rest";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -50,7 +51,7 @@ export async function updateRiskLabels(octokit: Octokit, options: LabelOptions):
       } catch (error) {
         const octokitError = error as { status?: number };
         if (octokitError.status !== 404) {
-          console.warn(`Warning: Failed to remove label ${label}: ${error}`);
+          core.warning(`Failed to remove label ${label}: ${error}`);
         }
       }
     }
@@ -66,7 +67,7 @@ export async function updateRiskLabels(octokit: Octokit, options: LabelOptions):
         labels: [targetLabel],
       });
     } catch (error) {
-      console.warn(`Warning: Failed to add label ${targetLabel}: ${error}`);
+      core.warning(`Failed to add label ${targetLabel}: ${error}`);
     }
   }
 }
@@ -90,7 +91,7 @@ async function getPRLabels(
     }
     return [];
   } catch (error) {
-    console.warn(`Warning: Failed to get PR labels: ${error}`);
+    core.warning(`Failed to get PR labels: ${error}`);
     return [];
   }
 }
@@ -100,7 +101,7 @@ export async function ensureLabelsExist(
   owner: string,
   repo: string,
 ): Promise<void> {
-  for (const [level, labelConfig] of Object.entries(RISK_LABELS)) {
+  for (const [_level, labelConfig] of Object.entries(RISK_LABELS)) {
     try {
       await octokit.request("GET /repos/{owner}/{repo}/labels/{name}", {
         owner,
@@ -119,7 +120,7 @@ export async function ensureLabelsExist(
             description: labelConfig.description,
           });
         } catch (createError) {
-          console.warn(`Warning: Failed to create label ${labelConfig.name}: ${createError}`);
+          core.warning(`Failed to create label ${labelConfig.name}: ${createError}`);
         }
       }
     }

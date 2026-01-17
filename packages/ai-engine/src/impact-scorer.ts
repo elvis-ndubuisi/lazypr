@@ -1,5 +1,9 @@
 import type { FileImpact, ImpactScorerOptions, RiskLevel } from "./types.js";
 
+/**
+ * Default patterns for identifying HIGH risk files.
+ * These patterns match files related to security, authentication, and data access.
+ */
 const DEFAULT_HIGH_RISK_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /auth\.js$/i, reason: "Authentication logic" },
   { pattern: /auth\.ts$/i, reason: "Authentication logic" },
@@ -35,6 +39,10 @@ const DEFAULT_HIGH_RISK_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /https?\.config/i, reason: "HTTP configuration" },
 ];
 
+/**
+ * Default patterns for identifying MEDIUM risk files.
+ * These patterns match files related to business logic and API handling.
+ */
 const DEFAULT_MEDIUM_RISK_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /controller\.js$/i, reason: "API controller" },
   { pattern: /controller\.ts$/i, reason: "API controller" },
@@ -85,11 +93,31 @@ const DEFAULT_LOW_RISK_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\.dockerignore/i, reason: "Docker ignore" },
 ];
 
+/**
+ * Assesses the risk level of files changed in a Pull Request.
+ *
+ * Uses pattern matching to classify files as HIGH, MEDIUM, or LOW risk
+ * based on their purpose (auth, schema, tests, etc.) and calculates
+ * overall impact scores for PR review prioritization.
+ *
+ * @example
+ * ```typescript
+ * const scorer = new ImpactScorer();
+ * const summary = scorer.getRiskSummary(["src/auth.ts", "tests/auth.test.ts"]);
+ * console.log(summary.overall); // "MEDIUM"
+ * console.log(summary.score); // e.g., 65
+ * ```
+ */
 export class ImpactScorer {
   private highRiskPatterns: Array<{ pattern: RegExp; reason: string }>;
   private mediumRiskPatterns: Array<{ pattern: RegExp; reason: string }>;
   private lowRiskPatterns: Array<{ pattern: RegExp; reason: string }>;
 
+  /**
+   * Creates a new ImpactScorer with optional custom patterns.
+   *
+   * @param options - Configuration options including custom risk patterns
+   */
   constructor(options?: ImpactScorerOptions) {
     this.highRiskPatterns = [
       ...DEFAULT_HIGH_RISK_PATTERNS,
@@ -105,6 +133,12 @@ export class ImpactScorer {
     ];
   }
 
+  /**
+   * Assesses the risk level of a single file.
+   *
+   * @param file - The file path to assess
+   * @returns A FileImpact object with risk level and reasons
+   */
   assessFile(file: string): FileImpact {
     const fileName = file.split("/").pop() ?? file;
 
@@ -145,16 +179,31 @@ export class ImpactScorer {
     };
   }
 
+  /**
+   * Assesses the risk level for multiple files.
+   *
+   * @param files - Array of file paths to assess
+   * @returns Array of FileImpact objects for each file
+   */
   assessFiles(files: string[]): FileImpact[] {
     return files.map((file) => this.assessFile(file));
   }
 
+  /**
+   * Calculates the overall risk level for a set of changed files.
+   *
+   * Uses a ratio-based approach where 20%+ HIGH risk files = HIGH overall,
+   * 10%+ HIGH risk files = MEDIUM overall.
+   *
+   * @param files - Array of file paths to assess
+   * @returns Overall risk level (LOW, MEDIUM, or HIGH)
+   */
   calculateOverallRisk(files: string[]): RiskLevel {
     const impacts = this.assessFiles(files);
 
     const highCount = impacts.filter((i) => i.riskLevel === "HIGH").length;
     const mediumCount = impacts.filter((i) => i.riskLevel === "MEDIUM").length;
-    const lowCount = impacts.filter((i) => i.riskLevel === "LOW").length;
+    const _lowCount = impacts.filter((i) => i.riskLevel === "LOW").length;
 
     const total = impacts.length;
 
@@ -184,6 +233,15 @@ export class ImpactScorer {
     return "LOW";
   }
 
+  /**
+   * Calculates an impact score from 0-100 based on changed files.
+   *
+   * HIGH risk files score 10 points, MEDIUM score 5, LOW score 1.
+   * The final score is the percentage of the maximum possible score.
+   *
+   * @param files - Array of file paths to assess
+   * @returns Impact score from 0 (no impact) to 100 (all high risk)
+   */
   calculateImpactScore(files: string[]): number {
     const impacts = this.assessFiles(files);
 
@@ -210,6 +268,12 @@ export class ImpactScorer {
     return Math.round((totalScore / maxPossibleScore) * 100);
   }
 
+  /**
+   * Generates a comprehensive risk summary for a set of changed files.
+   *
+   * @param files - Array of file paths to assess
+   * @returns Object containing overall risk, score, breakdown counts, and high risk files
+   */
   getRiskSummary(files: string[]): {
     overall: RiskLevel;
     score: number;

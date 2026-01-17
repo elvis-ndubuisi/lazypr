@@ -1,0 +1,37 @@
+name: "lazypr AI PR Summary"
+
+description: "Generates AI-powered PR summaries with Ghost Commit detection, impact scoring, and automated reviewer checklists"
+
+inputs:
+  api_key:
+    description: "OpenAI or Anthropic API key"
+    required: true
+  provider:
+    description: "LLM provider to use (openai or anthropic)"
+    required: false
+    default: "openai"
+  model:
+    description: "Model to use for generation"
+    required: false
+    default: "gpt-4-turbo"
+  template:
+    description: "Prompt template to use (default, concise, verbose, security-focused)"
+    required: false
+    default: "default"
+  github_token:
+    description: "GitHub token for API access"
+    required: true
+
+outputs:
+  summary:
+    description: "Generated PR summary"
+  has_ghost_commits:
+    description: "Whether ghost commits were detected"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
+
+branding:
+  icon: "git-pull-request"
+  color: "purple"

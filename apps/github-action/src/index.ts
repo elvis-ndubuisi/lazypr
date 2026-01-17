@@ -1,19 +1,15 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import {
-  type LLMProvider,
-  type RiskLevel,
-  createAnthropicProvider,
-  createOpenAIProvider,
-  generatePRSummar,
-} from "@lazypr/ai-engine";
+import { type RiskLevel, createLangChainProvider, generatePRSummar } from "@lazypr/ai-engine";
 import { getTemplate } from "@lazypr/config-presets";
 import {
+  DiffSanitizer,
   GhostCommitDetector,
+  type ParsedFile,
+  TokenManager,
   extractChangedFiles,
   getGitDiff,
   getPRMetadata,
-  sanitizeDiff,
 } from "@lazypr/core";
 import { Octokit } from "@octokit/rest";
 import { ensureLabelsExist, getRiskLabelEmoji, updateRiskLabels } from "./label-manager.js";
@@ -109,11 +105,31 @@ function getPRContext(): PRContext {
  * @param inputs - The action inputs containing provider configuration
  * @returns Configured LLMProvider instance
  */
-function _createProvider(inputs: Inputs): LLMProvider {
-  if (inputs.provider === "anthropic") {
-    return createAnthropicProvider(inputs.apiKey);
+function _createProvider(inputs: Inputs): ReturnType<typeof createLangChainProvider> {
+  return createLangChainProvider({
+    provider: inputs.provider === "anthropic" ? "anthropic" : "openai",
+    apiKey: inputs.apiKey,
+    model: inputs.model,
+  });
+}
+
+/**
+ * Returns the maximum token limit for the specified provider.
+ *
+ * Different LLM providers have different context window sizes:
+ * - Gemini 2.5 Flash: 1M tokens
+ * - OpenAI GPT-4 Turbo: 128K tokens
+ * - Anthropic Claude: 200K tokens
+ */
+function getMaxTokensForProvider(provider: string): number {
+  switch (provider) {
+    case "gemini":
+      return 800000;
+    case "anthropic":
+      return 150000;
+    default:
+      return 100000;
   }
-  return createOpenAIProvider(inputs.apiKey);
 }
 
 /**
@@ -162,8 +178,7 @@ async function run(): Promise<void> {
       return;
     }
 
-    const changedFiles = extractChangedFiles(diff);
-    core.info(`Changed files: ${String(changedFiles.length)}`);
+    core.info("Changed files detected, processing diff...");
 
     let templateContent: string | undefined;
     let systemPrompt: string | undefined;
@@ -190,11 +205,31 @@ async function run(): Promise<void> {
       core.info(`Using built-in template: ${template.name}`);
     }
 
+    core.info("Sanitizing and processing diff...");
+
+    const sanitizer = new DiffSanitizer();
+    const parsedFiles = sanitizer.parse(diff);
+    const sanitizedFiles = sanitizer.sanitize(parsedFiles, {
+      excludeLockfiles: true,
+      excludeNonCodeAssets: true,
+    });
+
+    const tokenManager = new TokenManager();
+    const maxTokens = getMaxTokensForProvider(inputs.provider);
+    const truncatedFiles = tokenManager.truncate(sanitizedFiles, {
+      maxTokens,
+    });
+
+    const processedDiff = sanitizer.reconstruct(truncatedFiles);
+    const changedFiles = truncatedFiles.map((f) => f.newPath);
+
+    core.info(
+      `Processed ${truncatedFiles.length}/${parsedFiles.length} files (${tokenManager.getTotalTokens(truncatedFiles)} tokens)`,
+    );
+
     core.info("Generating PR summary with AI...");
 
-    const sanitizedDiff = sanitizeDiff(diff);
-
-    const result = await generatePRSummar(sanitizedDiff, changedFiles, {
+    const result = await generatePRSummar(processedDiff, changedFiles, {
       apiKey: inputs.apiKey,
       provider: inputs.provider,
       model: inputs.model,

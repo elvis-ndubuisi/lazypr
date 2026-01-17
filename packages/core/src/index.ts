@@ -387,3 +387,6 @@ export class GhostCommitDetector {
     return { detected: false };
   }
 }
+
+export { DiffSanitizer, type ParsedFile } from "./diff-sanitizer.js";
+export { TokenManager, type TokenWeight, type TruncateOptions } from "./token-manager.js";

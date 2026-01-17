@@ -1,6 +1,6 @@
 import { getTemplate } from "@lazypr/config-presets";
 import { ImpactScorer } from "./impact-scorer.js";
-import { type LLMProvider, createAnthropicProvider, createOpenAIProvider } from "./index.js";
+import { type LLMProvider, type LLMProviderType, createLangChainProvider } from "./index.js";
 import type { RiskLevel, SummarizerOptions, SummaryResult } from "./types.js";
 
 const DEFAULT_MAX_TOKENS = 4000;
@@ -12,16 +12,14 @@ export async function generatePRSummar(
   options?: SummarizerOptions,
 ): Promise<SummaryResult> {
   const apiKey = options?.apiKey ?? process.env.OPENAI_API_KEY ?? "";
-  const providerType = options?.provider ?? "openai";
+  const providerType = (options?.provider ?? "openai") as LLMProviderType;
   const model = options?.model ?? getDefaultModel(providerType);
 
-  let provider: LLMProvider;
-
-  if (providerType === "anthropic") {
-    provider = createAnthropicProvider(apiKey);
-  } else {
-    provider = createOpenAIProvider(apiKey);
-  }
+  const provider = createLangChainProvider({
+    provider: providerType,
+    apiKey,
+    model,
+  });
 
   const scorer = new ImpactScorer();
   const riskSummary = scorer.getRiskSummary(changedFiles);
@@ -67,10 +65,14 @@ export async function generatePRSummar(
   };
 }
 
-function getDefaultModel(provider: string): string {
+function getDefaultModel(provider: LLMProviderType): string {
   switch (provider) {
     case "anthropic":
-      return "claude-3-5-sonnet-20241022";
+      return "claude-sonnet-4-20250514";
+    case "openai":
+      return "gpt-4-turbo";
+    case "gemini":
+      return "gemini-2.5-flash";
     default:
       return "gpt-4-turbo";
   }

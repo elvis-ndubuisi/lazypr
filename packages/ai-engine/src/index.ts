@@ -1,4 +1,27 @@
+/**
+ * AI Engine for lazypr - LLM provider abstraction layer.
+ *
+ * This package provides a unified interface for interacting with various LLM providers
+ * (OpenAI, Anthropic, Google Gemini) using LangChain.js for abstraction.
+ *
+ * @example
+ * ```typescript
+ * import { createLangChainProvider, createLLM, getProviderInfo } from "@lazypr/ai-engine";
+ *
+ * // Factory approach (recommended)
+ * const provider = createLangChainProvider({
+ *   provider: "gemini",
+ *   apiKey: process.env.GEMINI_API_KEY,
+ *   model: "gemini-2.5-flash"
+ * });
+ *
+ * const result = await provider.complete("Summarize this PR...");
+ * ```
+ */
+
 import OpenAI from "openai";
+
+export type { LLMProviderType } from "./llm-factory.js";
 
 /**
  * Options for LLM completion requests.
@@ -29,7 +52,7 @@ export interface Completion {
  *
  * @example
  * ```typescript
- * const provider = createOpenAIProvider(apiKey);
+ * const provider = createLangChainProvider({ provider: "openai" });
  * const result = await provider.complete("Summarize this PR...");
  * console.log(result.text);
  * ```
@@ -54,7 +77,7 @@ export interface LLMProvider {
 }
 
 /**
- * Creates an OpenAI provider for text completions.
+ * Creates an OpenAI provider for text completions using direct SDK.
  *
  * @param apiKey - OpenAI API key (uses OPENAI_API_KEY env var if not provided)
  * @returns An LLMProvider instance configured for OpenAI
@@ -64,6 +87,7 @@ export interface LLMProvider {
  * const provider = createOpenAIProvider(process.env.OPENAI_API_KEY);
  * const result = await provider.complete("Hello, world!");
  * ```
+ * @deprecated Use createLangChainProvider with provider: "openai" instead
  */
 export function createOpenAIProvider(apiKey: string): LLMProvider {
   const client = new OpenAI({ apiKey });
@@ -119,7 +143,7 @@ export function createOpenAIProvider(apiKey: string): LLMProvider {
 }
 
 /**
- * Creates an Anthropic provider for text completions.
+ * Creates an Anthropic provider for text completions using direct SDK.
  *
  * Uses Anthropic's Claude models via their API compatibility layer.
  *
@@ -131,6 +155,7 @@ export function createOpenAIProvider(apiKey: string): LLMProvider {
  * const provider = createAnthropicProvider(process.env.ANTHROPIC_API_KEY);
  * const result = await provider.complete("Summarize this PR...");
  * ```
+ * @deprecated Use createLangChainProvider with provider: "anthropic" instead
  */
 export function createAnthropicProvider(apiKey: string): LLMProvider {
   const client = new OpenAI({
@@ -263,5 +288,6 @@ export * from "./types.js";
 export * from "./impact-scorer.js";
 export * from "./summarizer.js";
 export * from "./checklist-generator.js";
-export * from "./gemini-provider.js";
-export * from "./gemini-summarizer.js";
+export { createLangChainProvider, createLLM, getProviderInfo } from "./langchain-provider.js";
+export { createGeminiProvider, createGeminiProProvider } from "./gemini-provider.js";
+export { generatePRSummarForGemini, createGeminiFlashProvider } from "./gemini-summarizer.js";

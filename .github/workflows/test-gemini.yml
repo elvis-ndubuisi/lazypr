@@ -1,0 +1,31 @@
+name: Test lazypr with Gemini
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-lazypr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build lazypr
+        run: bun run build
+
+      - name: Run lazypr with Gemini
+        uses: ./
+        with:
+          provider: gemini
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          template: default

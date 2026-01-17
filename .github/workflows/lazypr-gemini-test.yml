@@ -2,7 +2,8 @@ name: Lazypr Gemini Test
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch:
+  push:
+    branches: [test-gemini]
 
 jobs:
   lazypr-test:
@@ -22,7 +23,7 @@ jobs:
           bun run build
 
       - name: Run lazypr with Gemini
-        if: ${{ secrets.GEMINI_API_KEY != '' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || env.GEMINI_API_KEY != '' }}
         uses: ./apps/github-action
         with:
           provider: gemini
@@ -31,5 +32,5 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: No API key message
-        if: ${{ secrets.GEMINI_API_KEY == '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && env.GEMINI_API_KEY == '' }}
         run: echo "GEMINI_API_KEY not set - skipping Gemini test"

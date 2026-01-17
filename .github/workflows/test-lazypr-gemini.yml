@@ -1,8 +1,7 @@
-name: Test lazypr with Gemini
+name: Test lazypr with Gemini (Full Integration)
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   test-lazypr:
@@ -29,9 +28,21 @@ jobs:
       - name: Build all packages
         run: bun run build
 
+      - name: Verify build output
+        run: |
+          echo "Build successful!"
+          ls -la apps/github-action/dist/
+
       - name: Run lazypr with Gemini
+        if: ${{ secrets.GEMINI_API_KEY != '' }}
         uses: ./apps/github-action
         with:
           provider: gemini
           api_key: ${{ secrets.GEMINI_API_KEY }}
           template: default
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip Gemini test if no API key
+        if: ${{ secrets.GEMINI_API_KEY == '' }}
+        run: echo "GEMINI_API_KEY not set, skipping Gemini test"

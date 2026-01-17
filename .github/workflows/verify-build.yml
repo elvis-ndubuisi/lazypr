@@ -1,0 +1,39 @@
+name: Build Verification
+on:
+  push:
+    branches: [test-gemini]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Clear build cache
+        run: |
+          rm -rf apps/*/dist packages/*/dist
+          rm -rf node_modules/.cache
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build all packages
+        run: bun run build
+
+      - name: Verify build output
+        run: |
+          echo "Build successful!"
+          ls -la apps/github-action/dist/
+          echo ""
+          echo "All packages built:"
+          ls -la packages/*/dist/ 2>/dev/null || echo "No dist folders in packages"

@@ -63,8 +63,12 @@ interface PRContext {
  * @throws Error if required inputs are missing
  */
 function getInputs(): Inputs {
-  const provider = (core.getInput("provider") as "openai" | "anthropic" | "gemini") || "openai";
+  const providerInput = core.getInput("provider");
   const modelInput = core.getInput("model");
+  const provider = (providerInput as "openai" | "anthropic" | "gemini") || "openai";
+
+  core.info(`DEBUG: providerInput="${providerInput}", provider="${provider}"`);
+  core.info(`DEBUG: modelInput="${modelInput}"`);
 
   let defaultModel = "gpt-4-turbo";
   if (provider === "gemini") {
@@ -73,7 +77,9 @@ function getInputs(): Inputs {
     defaultModel = "claude-sonnet-4-20250514";
   }
 
-  return {
+  core.info(`DEBUG: defaultModel="${defaultModel}"`);
+
+  const inputs = {
     apiKey: core.getInput("api_key", { required: true }),
     model: modelInput || defaultModel,
     provider,
@@ -81,6 +87,9 @@ function getInputs(): Inputs {
     githubToken: core.getInput("github_token") || process.env.GITHUB_TOKEN || "",
     customTemplateEnabled: core.getInput("custom_template") !== "false",
   };
+
+  core.info(`DEBUG: final model="${inputs.model}"`);
+  return inputs;
 }
 
 /**

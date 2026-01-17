@@ -1,7 +1,13 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { type LLMProvider, createAnthropicProvider, createOpenAIProvider } from "@lazypr/ai-engine";
-import { type PromptTemplate, getTemplate } from "@lazypr/config-presets";
+import {
+  type LLMProvider,
+  type RiskLevel,
+  createAnthropicProvider,
+  createOpenAIProvider,
+  generatePRSummar,
+} from "@lazypr/ai-engine";
+import { getTemplate } from "@lazypr/config-presets";
 import {
   GhostCommitDetector,
   extractChangedFiles,
@@ -9,6 +15,10 @@ import {
   getPRMetadata,
   sanitizeDiff,
 } from "@lazypr/core";
+import { Octokit } from "@octokit/rest";
+import { ensureLabelsExist, getRiskLabelEmoji, updateRiskLabels } from "./label-manager.js";
+import { formatChecklistForMarkdown, getCurrentPRBody, updatePRDescription } from "./pr-updater.js";
+import { loadCustomTemplate, sanitizeTemplate, validateTemplate } from "./template-loader.js";
 
 interface Inputs {
   apiKey: string;
@@ -16,6 +26,18 @@ interface Inputs {
   provider: "openai" | "anthropic";
   template: string;
   githubToken: string;
+  customTemplateEnabled: boolean;
+}
+
+interface PRContext {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  baseSha: string;
+  headSha: string;
+  title: string;
+  body: string;
+  author: string;
 }
 
 function getInputs(): Inputs {
@@ -25,6 +47,27 @@ function getInputs(): Inputs {
     provider: (core.getInput("provider") as "openai" | "anthropic") || "openai",
     template: core.getInput("template") || "default",
     githubToken: core.getInput("github_token") || process.env.GITHUB_TOKEN || "",
+    customTemplateEnabled: core.getInput("custom_template") !== "false",
+  };
+}
+
+function getPRContext(): PRContext {
+  const { owner, repo } = github.context.repo;
+  const pullRequest = github.context.payload.pull_request;
+
+  if (!pullRequest) {
+    throw new Error("This action must be run on a pull request event");
+  }
+
+  return {
+    owner,
+    repo,
+    pullNumber: pullRequest.number,
+    baseSha: pullRequest.base?.sha || github.context.sha,
+    headSha: pullRequest.head?.sha || github.context.sha,
+    title: pullRequest.title || "",
+    body: pullRequest.body || "",
+    author: pullRequest.user?.login || "unknown",
   };
 }
 
@@ -35,71 +78,174 @@ function createProvider(inputs: Inputs): LLMProvider {
   return createOpenAIProvider(inputs.apiKey);
 }
 
-async function generatePRSummary(
-  inputs: Inputs,
+async function run(): Promise<void> {
+  const startTime = Date.now();
+
+  try {
+    core.info("Starting lazypr PR Summary generation...");
+
+    const inputs = getInputs();
+    const prContext = getPRContext();
+
+    core.info(
+      "Processing PR #" +
+        String(prContext.pullNumber) +
+        " in " +
+        prContext.owner +
+        "/" +
+        prContext.repo,
+    );
+
+    const octokit = new Octokit({ auth: inputs.githubToken });
+
+    await ensureLabelsExist(octokit, prContext.owner, prContext.repo);
+
+    core.info("Fetching PR diff...");
+
+    const diff = await getGitDiff({
+      owner: prContext.owner,
+      repo: prContext.repo,
+      baseSha: prContext.baseSha,
+      headSha: prContext.headSha,
+      token: inputs.githubToken,
+    });
+
+    if (!diff || diff.trim().length === 0) {
+      core.warning("No diff found for this PR");
+      core.setOutput("summary", "No changes detected");
+      core.setOutput("has_ghost_commits", "false");
+      return;
+    }
+
+    const changedFiles = extractChangedFiles(diff);
+    core.info("Changed files: " + String(changedFiles.length));
+
+    let templateContent: string | undefined;
+    let systemPrompt: string | undefined;
+
+    if (inputs.customTemplateEnabled) {
+      core.info("Checking for custom template...");
+      const customTemplate = await loadCustomTemplate(octokit, prContext.owner, prContext.repo);
+
+      if (customTemplate) {
+        const validation = validateTemplate(customTemplate);
+        if (validation.valid) {
+          core.info("Using custom template from repository");
+          templateContent = sanitizeTemplate(customTemplate);
+        } else {
+          core.warning("Custom template is invalid: " + validation.errors.join(", "));
+        }
+      }
+    }
+
+    if (!templateContent) {
+      const template = getTemplate(inputs.template);
+      templateContent = template.template;
+      systemPrompt = template.systemPrompt;
+      core.info("Using built-in template: " + template.name);
+    }
+
+    core.info("Generating PR summary with AI...");
+
+    const sanitizedDiff = sanitizeDiff(diff);
+
+    const result = await generatePRSummar(sanitizedDiff, changedFiles, {
+      apiKey: inputs.apiKey,
+      provider: inputs.provider,
+      model: inputs.model,
+      customTemplate: templateContent,
+      systemPrompt,
+    });
+
+    core.info("Summary generated. Risk level: " + result.riskLevel);
+
+    const ghostCommitResults = await detectGhostCommits(diff, inputs.githubToken, prContext);
+
+    const hasGhostCommits = ghostCommitResults.some((r) => r.detected);
+
+    core.info("Updating PR description...");
+
+    await updatePRDescription(octokit, {
+      owner: prContext.owner,
+      repo: prContext.repo,
+      pullNumber: prContext.pullNumber,
+      summary: result.summary,
+      existingBody: prContext.body,
+      riskLevel: result.riskLevel,
+      impactScore: result.impactScore,
+      checklist: result.checklist,
+      ghostCommits: ghostCommitResults,
+      prTitle: prContext.title,
+      prAuthor: prContext.author,
+    });
+
+    core.info("Updating risk labels...");
+
+    await updateRiskLabels(octokit, {
+      owner: prContext.owner,
+      repo: prContext.repo,
+      pullNumber: prContext.pullNumber,
+      riskLevel: result.riskLevel as RiskLevel,
+    });
+
+    const output = formatOutput(result, ghostCommitResults, hasGhostCommits);
+
+    core.setOutput("summary", output);
+    core.setOutput("has_ghost_commits", String(hasGhostCommits));
+    core.setOutput("risk_level", result.riskLevel);
+    core.setOutput("impact_score", String(result.impactScore));
+
+    if (hasGhostCommits) {
+      const ghostWarnings = ghostCommitResults
+        .filter((r) => r.detected)
+        .map((r) => {
+          const sha = r.sha.substring(0, 7);
+          return "  - " + sha + ": " + (r.reason || "Message mismatch");
+        })
+        .join("\n");
+      core.warning("Potential ghost commits detected:\n" + ghostWarnings);
+    }
+
+    const duration = Date.now() - startTime;
+    core.info("lazypr PR Summary generation complete! (took " + String(duration) + "ms)");
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    core.setFailed("Error generating PR summary: " + errorMessage);
+  }
+}
+
+async function detectGhostCommits(
   diff: string,
-  prMetadata: Awaited<ReturnType<typeof getPRMetadata>>,
-): Promise<string> {
-  const provider = createProvider(inputs);
-  const template = getTemplate(inputs.template);
-
-  const sanitizedDiff = sanitizeDiff(diff);
-  const changedFiles = extractChangedFiles(diff);
-
-  const systemPrompt = template.systemPrompt ?? undefined;
-  const userPrompt = buildPrompt(template, {
-    prTitle: prMetadata.title,
-    prBody: prMetadata.body,
-    prAuthor: prMetadata.author,
-    filesChanged: changedFiles.join(", "),
-    diff: sanitizedDiff,
-  });
-
-  const completion = await provider.complete(userPrompt, {
-    model: inputs.model,
-    maxTokens: 4000,
-    temperature: 0.3,
-    systemPrompt,
-  });
-
-  return completion.text;
-}
-
-interface PromptVariables {
-  prTitle: string;
-  prBody: string;
-  prAuthor: string;
-  filesChanged: string;
-  diff: string;
-}
-
-function buildPrompt(template: PromptTemplate, variables: PromptVariables): string {
-  let prompt = template.template;
-  prompt = prompt.replace(/\{\{prTitle\}\}/g, variables.prTitle);
-  prompt = prompt.replace(/\{\{prBody\}\}/g, variables.prBody || "(No description provided)");
-  prompt = prompt.replace(/\{\{prAuthor\}\}/g, variables.prAuthor);
-  prompt = prompt.replace(/\{\{filesChanged\}\}/g, variables.filesChanged);
-  prompt = prompt.replace(/\{\{diff\}\}/g, variables.diff);
-  return prompt;
-}
-
-async function runGhostCommitDetection(
-  diff: string,
+  token: string,
+  prContext: PRContext,
 ): Promise<Array<{ sha: string; message: string; detected: boolean; reason?: string }>> {
-  const detector = new GhostCommitDetector();
-  const commits = extractCommitInfoFromContext();
-  const results = await detector.detect(diff, commits);
-  return results;
+  try {
+    const detector = new GhostCommitDetector();
+
+    const commits = extractCommitsFromGitHub(prContext, token);
+
+    const results = await detector.detect(diff, commits);
+
+    return results;
+  } catch (error) {
+    core.warning("Failed to detect ghost commits: " + error);
+    return [];
+  }
 }
 
-function extractCommitInfoFromContext(): Array<{ sha: string; message: string }> {
+function extractCommitsFromGitHub(
+  prContext: PRContext,
+  _token: string,
+): Array<{ sha: string; message: string }> {
   const commits: Array<{ sha: string; message: string }> = [];
 
-  if (github.context.payload.pull_request?.commits) {
-    for (let i = 0; i < github.context.payload.pull_request.commits; i++) {
+  const pr = github.context.payload.pull_request;
+
+  if (pr && typeof pr.commits === "number") {
+    for (let i = 0; i < Math.min(pr.commits, 100); i++) {
       commits.push({
-        sha: `commit-${i}`,
-        message: "Commit message extraction requires GitHub API",
+        sha: "commit-" + String(i),
+        message: "Commit extraction requires GitHub API",
       });
     }
   }
@@ -107,93 +253,39 @@ function extractCommitInfoFromContext(): Array<{ sha: string; message: string }>
   return commits;
 }
 
-async function main(): Promise<void> {
-  try {
-    core.info("Starting lazypr PR Summary generation...");
-
-    const inputs = getInputs();
-    const { owner, repo } = github.context.repo;
-    const pullNumber = github.context.payload.pull_request?.number;
-
-    if (!pullNumber) {
-      core.setFailed("Could not determine pull request number");
-      return;
-    }
-
-    core.info(`Processing PR #${pullNumber} in ${owner}/${repo}`);
-
-    const prMetadata = await getPRMetadata(owner, repo, pullNumber, inputs.githubToken);
-    core.info(`Fetched PR: "${prMetadata.title}" by ${prMetadata.author}`);
-
-    const baseSha = github.context.payload.pull_request?.base?.sha || "main";
-    const headSha = github.context.payload.pull_request?.head?.sha || "";
-
-    core.info(`Fetching diff between ${baseSha}...${headSha}`);
-
-    const diff = await getGitDiff({
-      owner,
-      repo,
-      baseSha,
-      headSha,
-      token: inputs.githubToken,
-    });
-
-    if (!diff) {
-      core.warning("No diff found for this PR");
-      core.setOutput("summary", "No changes detected");
-      return;
-    }
-
-    core.info("Generating PR summary with AI...");
-
-    const summary = await generatePRSummary(inputs, diff, prMetadata);
-
-    core.info("Checking for Ghost Commits...");
-
-    const ghostCommitResults = await runGhostCommitDetection(diff);
-    const hasGhostCommits = ghostCommitResults.some((r) => r.detected);
-
-    const output = formatOutput(summary, ghostCommitResults, hasGhostCommits);
-
-    core.setOutput("summary", output);
-    core.setOutput("has_ghost_commits", String(hasGhostCommits));
-
-    if (hasGhostCommits) {
-      const ghostWarnings = ghostCommitResults
-        .filter((r) => r.detected)
-        .map((r) => `  - ${r.sha.substring(0, 7)}: ${r.reason}`)
-        .join("\n");
-      core.warning(`Potential ghost commits detected:\n${ghostWarnings}`);
-    }
-
-    core.info("lazypr PR Summary generation complete!");
-  } catch (error) {
-    core.setFailed(
-      `Error generating PR summary: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
 function formatOutput(
-  summary: string,
-  ghostCommitResults: Array<{ sha: string; message: string; detected: boolean; reason?: string }>,
+  result: { summary: string; riskLevel: string; impactScore: number; checklist: string[] },
+  ghostCommits: Array<{ sha: string; message: string; detected: boolean; reason?: string }>,
   _hasGhostCommits: boolean,
 ): string {
-  let output = summary;
+  let output = result.summary;
 
-  const ghostCommits = ghostCommitResults.filter((r) => r.detected);
-  if (ghostCommits.length > 0) {
-    output += "\n\n### ⚠️ Potential Ghost Commits Detected\n";
-    for (const commit of ghostCommits) {
+  const riskEmoji = getRiskLabelEmoji(result.riskLevel as RiskLevel);
+  output +=
+    "\n\n**Risk Level:** " +
+    riskEmoji +
+    " " +
+    result.riskLevel +
+    " (" +
+    String(result.impactScore) +
+    "/100)";
+
+  if (result.checklist && result.checklist.length > 0) {
+    output += "\n\n" + formatChecklistForMarkdown(result.checklist);
+  }
+
+  const detectedGhostCommits = ghostCommits.filter((c) => c.detected);
+  if (detectedGhostCommits.length > 0) {
+    output += "\n\n### Potential Ghost Commits\n";
+    for (const commit of detectedGhostCommits) {
       const sha = commit.sha.substring(0, 7);
-      const reason = commit.reason || "Commit message may not match changes";
-      output += `- **${sha}**: ${reason}\n`;
+      output += "- **" + sha + "**: " + (commit.reason || "Message mismatch") + "\n";
     }
   }
 
   return output;
 }
 
-main().catch((error) => {
-  core.setFailed(`Unhandled error: ${error instanceof Error ? error.message : String(error)}`);
+run().catch((error) => {
+  core.setFailed("Unhandled error: " + (error instanceof Error ? error.message : String(error)));
 });

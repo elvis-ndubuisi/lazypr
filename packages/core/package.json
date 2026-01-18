@@ -1,6 +1,6 @@
 {
   "name": "@lazypr/core",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Git logic, diff sanitization, and Ghost Commit detection",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

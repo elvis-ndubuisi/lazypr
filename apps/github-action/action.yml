@@ -1,6 +1,9 @@
 name: "LazyPR AI PR Summary"
 
 description: "Generates AI-powered PR summaries with Ghost Commit detection, impact scoring, and automated reviewer checklists"
+author: "elvis-ndubuisi"
+homepage: "https://github.com/elvis-ndubuisi/lazypr"
+repository: "https://github.com/elvis-ndubuisi/lazypr"
 
 inputs:
   api_key:

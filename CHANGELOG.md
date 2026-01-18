@@ -5,6 +5,13 @@ All notable changes to lazypr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-01-18
+
+### Security
+
+- **Removed leaked API key**: Deleted v1.0.2 release which contained an exposed API key in release notes
+- Fixed typo in release template: `@v` instead of `@@v`
+
 ## [1.0.0] - 2026-01-18
 
 ### Added

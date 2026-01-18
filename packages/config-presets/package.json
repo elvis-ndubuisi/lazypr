@@ -1,6 +1,6 @@
 {
   "name": "@lazypr/config-presets",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Pre-defined prompt templates",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

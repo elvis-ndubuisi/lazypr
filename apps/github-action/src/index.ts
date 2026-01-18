@@ -25,7 +25,7 @@ interface Inputs {
   /** LLM model to use (e.g., "gpt-4-turbo", "gemini-2.5-flash") */
   model: string;
   /** LLM provider to use ("openai", "anthropic", or "gemini") */
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | "gemini";
   /** Template name to use ("default", "security", "concise", "verbose") */
   template: string;
   /** GitHub API token for authenticated requests */
@@ -63,10 +63,26 @@ interface PRContext {
  * @throws Error if required inputs are missing
  */
 function getInputs(): Inputs {
+  const providerInput = core.getInput("provider");
+  const modelInput = core.getInput("model");
+  const provider = (providerInput as "openai" | "anthropic" | "gemini") || "openai";
+
+  let defaultModel = "gpt-4-turbo";
+  if (provider === "gemini") {
+    defaultModel = "gemini-2.5-flash";
+  } else if (provider === "anthropic") {
+    defaultModel = "claude-sonnet-4-20250514";
+  }
+
+  const model =
+    modelInput && !modelInput.includes("gpt-4") && !modelInput.includes("turbo")
+      ? modelInput
+      : defaultModel;
+
   return {
     apiKey: core.getInput("api_key", { required: true }),
-    model: core.getInput("model") || "gpt-4-turbo",
-    provider: (core.getInput("provider") as "openai" | "anthropic") || "openai",
+    model,
+    provider,
     template: core.getInput("template") || "default",
     githubToken: core.getInput("github_token") || process.env.GITHUB_TOKEN || "",
     customTemplateEnabled: core.getInput("custom_template") !== "false",
@@ -106,10 +122,21 @@ function getPRContext(): PRContext {
  * @returns Configured LLMProvider instance
  */
 function _createProvider(inputs: Inputs): ReturnType<typeof createLangChainProvider> {
+  let provider: "anthropic" | "openai" | "gemini" = "openai";
+  let model = inputs.model || "gpt-4-turbo";
+
+  if (inputs.provider === "gemini") {
+    provider = "gemini";
+    model = inputs.model || "gemini-2.5-flash";
+  } else if (inputs.provider === "anthropic") {
+    provider = "anthropic";
+    model = inputs.model || "claude-sonnet-4-20250514";
+  }
+
   return createLangChainProvider({
-    provider: inputs.provider === "anthropic" ? "anthropic" : "openai",
+    provider,
     apiKey: inputs.apiKey,
-    model: inputs.model,
+    model,
   });
 }
 

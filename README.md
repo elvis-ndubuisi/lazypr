@@ -36,7 +36,7 @@ lazypr/
 
 - [Bun](https://bun.sh) v1.2+ installed.
 - A GitHub Personal Access Token (for local testing).
-- An LLM API Key (OpenAI/Anthropic).
+- An LLM API Key (OpenAI, Anthropic, etc).
 
 ### Installation
 
@@ -75,8 +75,8 @@ Add this to your repository's `.github/workflows/lazypr.yml`:
 ```yaml
 - uses: elvis-ndubuisi/lazypr@v1
   with:
-    api_key: ${{ secrets.GEMINI_API_KEY }}  # or OPENAI_API_KEY / ANTHROPIC_API_KEY
-    provider: gemini  # openai, anthropic, or gemini
+    api_key: ${{ secrets.GEMINI_API_KEY }} # or OPENAI_API_KEY / ANTHROPIC_API_KEY
+    provider: gemini # openai, anthropic, or gemini
     # Optional: custom prompt template
     template: ".github/lazypr-template.md"
 ```
@@ -91,5 +91,7 @@ This is an open-source project. We value logic over "paperwork."
 2. `bun install`
 3. Write code that matters.
 4. Let **lazypr** write the PR summary for you.
+
 # Test Update
+
 // Testing lazypr Gemini integration Sat Jan 17 06:08:52 WAT 2026

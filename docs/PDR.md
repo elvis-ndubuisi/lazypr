@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-**LazyPR** is an open-source GitHub Action that automatically generates high-quality Pull Request descriptions. It analyzes git diffs and commit history using a user-provided LLM API key to provide context-aware summaries, impact assessments, and change logs.
+**LazyCommit** is an open-source GitHub Action that automatically generates high-quality Pull Request descriptions. It analyzes git diffs and commit history using a user-provided LLM API key to provide context-aware summaries, impact assessments, and change logs.
 
 ## 2. Problem Statement
 

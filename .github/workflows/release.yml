@@ -10,15 +10,12 @@ permissions:
 
 jobs:
   release:
-    name: Build and Release
+    name: Build and release
     runs-on: ubuntu-latest
-    if: github.event.repository.default_branch != github.ref_name
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -28,52 +25,31 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Build and Bundle
-        run: |
-          bun run build
-          cd apps/github-action && bun run build
+      - name: Build all packages
+        run: bun run build
 
-      - name: Prepare Root for Marketplace
-        run: |
-          cp apps/github-action/action.yml ./action.yml
-          mkdir -p ./dist
-          cp apps/github-action/dist/index.js ./dist/index.js
+      - name: Build GitHub Action
+        run: cd apps/github-action && bun run build
 
-      - name: Commit Marketplace Files
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add action.yml dist/index.js
-          git commit -m "chore: prepare release assets for ${{ github.ref_name }}" || echo "Nothing to commit"
-          git push origin HEAD:${{ github.event.repository.default_branch }} || echo "Already up to date or push failed"
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Create release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          generate_release_notes: true
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## Changes
+
+            See [CHANGELOG.md](./CHANGELOG.md) for details.
+
+            ## Installation
+
+            ```yaml
+            steps:
+              - uses: elvis-ndubuisi/lazypr@v${{ github.ref_name }}
+                with:
+                  api_key: ${{ secrets.GEMINI_API_KEY }}
+            ```
           draft: false
           prerelease: false
-          files: |
-            dist/index.js
-            action.yml
-          body: |
-            ## 🚀 lazypr ${{ github.ref_name }}
-
-            AI-powered PR summaries with Gemini, OpenAI, and Anthropic support.
-
-            ### Features
-            - 🤖 Multi-provider LLM support (Gemini, OpenAI, Anthropic)
-            - 👻 Ghost Commit detection
-            - 📊 Impact scoring and risk assessment
-            - ✅ Automated reviewer checklists
-            - 📝 Custom prompt templates
-
-            ### Usage
-            ```yaml
-            - uses: elvis-ndubuisi/lazypr@${{ github.ref_name }}
-              with:
-                api_key: ${{ secrets.GEMINI_API_KEY }}
-                provider: gemini
-            ```

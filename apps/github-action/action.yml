@@ -4,22 +4,22 @@ description: "Generates AI-powered PR summaries with Ghost Commit detection, imp
 
 inputs:
   api_key:
-    description: "OpenAI or Anthropic API key"
+    description: "API key for your LLM provider (OpenAI, Anthropic, or Google Gemini)"
     required: true
   provider:
-    description: "LLM provider to use (openai or anthropic)"
+    description: "LLM provider to use (openai, anthropic, or gemini)"
     required: false
     default: "openai"
   model:
-    description: "Model to use for generation"
+    description: "Model to use (defaults to provider-specific model if not specified)"
     required: false
-    default: "gpt-4-turbo"
+    default: ""
   template:
     description: "Prompt template to use (default, concise, verbose, security-focused)"
     required: false
     default: "default"
   github_token:
-    description: "GitHub token for API access"
+    description: "GitHub token for API access (automatically provided by GitHub Actions)"
     required: true
 
 outputs:
@@ -27,6 +27,10 @@ outputs:
     description: "Generated PR summary"
   has_ghost_commits:
     description: "Whether ghost commits were detected"
+  risk_level:
+    description: "Risk level of the PR changes (LOW, MEDIUM, or HIGH)"
+  impact_score:
+    description: "Impact score from 0-100"
 
 runs:
   using: "node20"

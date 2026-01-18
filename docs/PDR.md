@@ -67,10 +67,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: your-username/autopr-summary@v1
+      - uses: elvis-ndubuisi/lazypr@v1
         with:
-          api_key: ${{ secrets.OPENAI_API_KEY }}
-          model: "gpt-4-turbo"
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          provider: gemini
           template: ".github/my-custom-prompt.md"
 ```
 

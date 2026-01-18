@@ -1,19 +1,21 @@
 # lazypr AI PR Summary
 
-![Tests](https://github.com/your-username/lazypr/actions/workflows/test.yml/badge.svg)
-![Release](https://github.com/your-username/lazypr/actions/workflows/release.yml/badge.svg)
+![Tests](https://github.com/elvis-ndubuisi/lazypr/actions/workflows/test.yml/badge.svg)
+![Release](https://github.com/elvis-ndubuisi/lazypr/actions/workflows/release.yml/badge.svg)
 ![Node](https://img.shields.io/node/v20)
 
 Automatically generate AI-powered PR summaries with impact scoring, Ghost Commit detection, and automated reviewer checklists.
 
 ## Features
 
-- **AI-Powered Summaries**: Uses OpenAI or Anthropic to generate meaningful PR descriptions
+- **AI-Powered Summaries**: Uses OpenAI, Anthropic, or Google Gemini to generate meaningful PR descriptions
+- **Multi-Provider Support**: Choose your LLM provider (openai, anthropic, gemini)
 - **Impact Scoring**: Automatically assesses risk based on changed files (auth, schema, etc.)
 - **Ghost Commit Detection**: Identifies commits where the message doesn't match the changes
 - **Reviewer Checklists**: Generates context-aware checklist items based on the code changes
 - **Risk Labels**: Adds `lazypr/high-risk`, `lazypr/medium-risk`, or `lazypr/low-risk` labels
 - **Custom Templates**: Supports loading custom prompt templates from your repository
+- **1M Token Context**: Gemini 2.5 Flash handles large PRs effortlessly
 
 ## Usage
 
@@ -27,13 +29,22 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   summarize:
     runs-on: ubuntu-latest
     steps:
-      - uses: your-username/lazypr@v1
+      - uses: actions/checkout@v4
         with:
-          api_key: ${{ secrets.OPENAI_API_KEY }}
+          fetch-depth: 0
+
+      - uses: elvis-ndubuisi/lazypr@v1
+        with:
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          provider: gemini
 ```
 
 ### With All Options
@@ -44,26 +55,35 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   summarize:
     runs-on: ubuntu-latest
     steps:
-      - uses: your-username/lazypr@v1
+      - uses: actions/checkout@v4
         with:
-          api_key: ${{ secrets.OPENAI_API_KEY }}
-          provider: openai  # or anthropic
-          model: gpt-4-turbo
+          fetch-depth: 0
+
+      - uses: elvis-ndubuisi/lazypr@v1
+        with:
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          provider: gemini  # openai, anthropic, or gemini
+          model: gemini-2.5-flash  # optional, auto-selected based on provider
           template: default  # default, concise, verbose, security-focused
           custom_template: true  # enable loading .github/lazypr-template.md
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `api_key` | Yes | - | OpenAI or Anthropic API key |
-| `provider` | No | `openai` | LLM provider (`openai` or `anthropic`) |
-| `model` | No | `gpt-4-turbo` | Model to use |
+| `api_key` | Yes | - | OpenAI, Anthropic, or Google Gemini API key |
+| `provider` | No | `openai` | LLM provider (`openai`, `anthropic`, or `gemini`) |
+| `model` | No | (provider-specific) | Model to use. Defaults: `gpt-4-turbo` (OpenAI), `claude-sonnet-4-20250514` (Anthropic), `gemini-2.5-flash` (Gemini) |
 | `template` | No | `default` | Template name (`default`, `concise`, `verbose`, `security-focused`) |
 | `custom_template` | No | `false` | Whether to load custom template from repo |
 | `github_token` | Yes | `${{ github.token }}` | GitHub token for API access |
@@ -136,7 +156,10 @@ This PR implements JWT-based authentication for the API...
 Add your API key as a secret:
 
 1. Go to your repository Settings > Secrets and variables > Actions
-2. Add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
+2. Add one of:
+   - `GEMINI_API_KEY` (for Gemini)
+   - `OPENAI_API_KEY` (for OpenAI)
+   - `ANTHROPIC_API_KEY` (for Anthropic)
 
 ## Contributing
 

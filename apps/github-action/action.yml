@@ -1,6 +1,8 @@
-name: "LazyPR AI PR Summary"
-
+name: "LazyPR"
 description: "Generates AI-powered PR summaries with Ghost Commit detection, impact scoring, and automated reviewer checklists"
+author: "elvis-ndubuisi"
+homepage: "https://github.com/elvis-ndubuisi/lazypr"
+repository: "https://github.com/elvis-ndubuisi/lazypr"
 
 inputs:
   api_key:
@@ -20,7 +22,8 @@ inputs:
     default: "default"
   github_token:
     description: "GitHub token for API access (automatically provided by GitHub Actions)"
-    required: true
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   summary:

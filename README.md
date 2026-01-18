@@ -73,10 +73,10 @@ bun run build
 Add this to your repository's `.github/workflows/lazypr.yml`:
 
 ```yaml
-- uses: your-username/lazypr@v1
+- uses: elvis-ndubuisi/lazypr@v1
   with:
-    api_key: ${{ secrets.OPENAI_API_KEY }}
-    model: "gpt-4-turbo"
+    api_key: ${{ secrets.GEMINI_API_KEY }}  # or OPENAI_API_KEY / ANTHROPIC_API_KEY
+    provider: gemini  # openai, anthropic, or gemini
     # Optional: custom prompt template
     template: ".github/lazypr-template.md"
 ```

@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Build and release
@@ -44,7 +47,7 @@ jobs:
 
             ```yaml
             steps:
-              - uses: your-username/lazypr@v${{ github.ref_name }}
+              - uses: elvis-ndubuisi/lazypr@v${{ github.ref_name }}
                 with:
                   api_key: ${{ secrets.OPENAI_API_KEY }}
             ```

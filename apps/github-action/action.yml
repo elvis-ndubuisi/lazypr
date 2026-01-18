@@ -1,4 +1,4 @@
-name: "lazypr AI PR Summary"
+name: "LazyPR AI PR Summary"
 
 description: "Generates AI-powered PR summaries with Ghost Commit detection, impact scoring, and automated reviewer checklists"
 

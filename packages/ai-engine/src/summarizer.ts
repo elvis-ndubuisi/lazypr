@@ -32,7 +32,7 @@ export async function generatePRSummar(
     template = templateObj.template;
   }
 
-  const systemPrompt = options?.systemPrompt ?? undefined;
+  const systemPrompt: string | undefined = options?.systemPrompt;
 
   const prompt = buildPrompt(template, {
     diff: truncateDiff(diff, 15000),

@@ -1,0 +1,48 @@
+name: Test lazypr with Gemini (Full Integration)
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-lazypr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Clear build cache
+        run: |
+          rm -rf apps/*/dist packages/*/dist
+          rm -rf node_modules/.cache
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build all packages
+        run: bun run build
+
+      - name: Verify build output
+        run: |
+          echo "Build successful!"
+          ls -la apps/github-action/dist/
+
+      - name: Run lazypr with Gemini
+        if: ${{ secrets.GEMINI_API_KEY != '' }}
+        uses: ./apps/github-action
+        with:
+          provider: gemini
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          template: default
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip Gemini test if no API key
+        if: ${{ secrets.GEMINI_API_KEY == '' }}
+        run: echo "GEMINI_API_KEY not set, skipping Gemini test"

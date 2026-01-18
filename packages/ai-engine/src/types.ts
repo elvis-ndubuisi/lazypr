@@ -33,7 +33,7 @@ export interface SummarizerOptions {
   /** Name of the template to use (e.g., "security", "concise", "verbose") */
   templateName?: string;
   /** LLM provider to use ("openai", "anthropic", or "gemini") */
-  provider?: "openai" | "anthropic";
+  provider?: "openai" | "anthropic" | "gemini";
   /** Specific model to use (overrides provider default) */
   model?: string;
   /** API key for the LLM provider (optional, uses env var if not provided) */

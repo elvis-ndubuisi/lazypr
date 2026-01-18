@@ -16,6 +16,7 @@
     "@google/generative-ai": "^0.2.0",
     "@langchain/google-genai": "^2.1.10",
     "@langchain/openai": "^1.2.2",
+    "@lazypr/config-presets": "workspace:*",
     "langchain": "^1.2.10",
     "openai": "^4.0.0",
     "zod": "^3.23.0"

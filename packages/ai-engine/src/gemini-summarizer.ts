@@ -94,7 +94,7 @@ export async function generatePRSummarForGemini(
     template = templateObj.template;
   }
 
-  const systemPrompt = options?.systemPrompt ?? GEMINI_SYSTEM_PROMPT;
+  const systemPrompt: string = options?.systemPrompt ?? GEMINI_SYSTEM_PROMPT;
 
   const prompt = buildGeminiPrompt(template, diff, changedFiles, riskLevel, riskSummary);
 

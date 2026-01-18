@@ -10,12 +10,14 @@ permissions:
 
 jobs:
   release:
-    name: Build and release
+    name: Build and Release
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all history for tags/releases
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -25,31 +27,43 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Build all packages
-        run: bun run build
+      - name: Build and Bundle
+        # We build the action and ensure the bundled output is in a known location
+        run: |
+          bun run build
+          cd apps/github-action && bun run build
 
-      - name: Build GitHub Action
-        run: cd apps/github-action && bun run build
+      - name: Prepare Root for Marketplace
+        # GitHub Marketplace looks at the ROOT. We copy necessary files there.
+        run: |
+          cp apps/github-action/action.yml ./action.yml
+          mkdir -p ./dist
+          cp apps/github-action/dist/index.js ./dist/index.js
 
-      - name: Create release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit Marketplace Files
+        # We push the 'bundled' files back to the repo so users @v1 can find them
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add action.yml dist/index.js
+          git commit -m "chore: prepare release assets for ${{ github.ref_name }}"
+          # Use --force to update the tag if necessary, or just push to the branch
+          git push origin HEAD:${{ github.event.repository.default_branch }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
           body: |
-            ## Changes
+            ## 🚀 lazypr ${{ github.ref_name }}
 
-            See [CHANGELOG.md](./CHANGELOG.md) for details.
+            AI-powered PR summaries are now ready.
 
-            ## Installation
-
+            ### Usage
             ```yaml
-            steps:
-              - uses: elvis-ndubuisi/lazypr@v${{ github.ref_name }}
-                with:
-                  api_key: ${{ secrets.GEMINI_API_KEY }}
+            - uses: elvis-ndubuisi/lazypr@${{ github.ref_name }}
+              with:
+                api_key: ${{ secrets.GEMINI_API_KEY }}
             ```
-          draft: false
-          prerelease: false

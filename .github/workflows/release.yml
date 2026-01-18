@@ -49,7 +49,7 @@ jobs:
             steps:
               - uses: elvis-ndubuisi/lazypr@v${{ github.ref_name }}
                 with:
-                  api_key: ${{ secrets.OPENAI_API_KEY }}
+                  api_key: ${{ secrets.GEMINI_API_KEY }}
             ```
           draft: false
           prerelease: false

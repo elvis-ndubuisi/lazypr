@@ -67,9 +67,6 @@ function getInputs(): Inputs {
   const modelInput = core.getInput("model");
   const provider = (providerInput as "openai" | "anthropic" | "gemini") || "openai";
 
-  core.info(`DEBUG: providerInput="${providerInput}", provider="${provider}"`);
-  core.info(`DEBUG: modelInput="${modelInput}"`);
-
   let defaultModel = "gpt-4-turbo";
   if (provider === "gemini") {
     defaultModel = "gemini-2.5-flash";
@@ -77,19 +74,19 @@ function getInputs(): Inputs {
     defaultModel = "claude-sonnet-4-20250514";
   }
 
-  core.info(`DEBUG: defaultModel="${defaultModel}"`);
+  const model =
+    modelInput && !modelInput.includes("gpt-4") && !modelInput.includes("turbo")
+      ? modelInput
+      : defaultModel;
 
-  const inputs = {
+  return {
     apiKey: core.getInput("api_key", { required: true }),
-    model: modelInput || defaultModel,
+    model,
     provider,
     template: core.getInput("template") || "default",
     githubToken: core.getInput("github_token") || process.env.GITHUB_TOKEN || "",
     customTemplateEnabled: core.getInput("custom_template") !== "false",
   };
-
-  core.info(`DEBUG: final model="${inputs.model}"`);
-  return inputs;
 }
 
 /**

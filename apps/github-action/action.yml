@@ -4,6 +4,7 @@ description: "Generates AI-powered PR summaries with Ghost Commit detection, imp
 author: "elvis-ndubuisi"
 homepage: "https://github.com/elvis-ndubuisi/lazypr"
 repository: "https://github.com/elvis-ndubuisi/lazypr"
+license: "MIT"
 
 inputs:
   api_key:

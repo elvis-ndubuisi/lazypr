@@ -63,7 +63,7 @@ jobs:
 
             ### Usage
             ```yaml
-            - uses: elvis-ndubuisi/lazypr@${{ github.ref_name }}
+            - uses: elvis-ndubuisi/lazypr\@${{ github.ref_name }}
               with:
                 api_key: ${{ secrets.GEMINI_API_KEY }}
             ```

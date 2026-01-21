@@ -59,5 +59,7 @@ jobs:
             ```yaml
             - uses: elvis-ndubuisi/lazypr\@${{ github.ref_name }}
               with:
-                api_key: ${{ secrets.GEMINI_API_KEY }}
+                api_key: ${{ secrets.YOUR_PROVIDER_API_KEY }}
             ```
+
+            See [README.md](https://github.com/elvis-ndubuisi/lazypr/blob/main/README.md) for setup instructions.

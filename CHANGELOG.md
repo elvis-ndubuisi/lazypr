@@ -12,6 +12,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Removed leaked API key**: Deleted v1.0.2 release which contained an exposed API key in release notes
 - Fixed typo in release template: `@v` instead of `@@v`
 
+## [1.1.0] - 2026-01-19
+
+### Changed
+
+- **Templates**: Refactored to AI instruction format with structured constraints
+  - New template format: AI instruction prefix with output format requirements
+  - Added explicit sections: TL;DR, Key Changes, Security Analysis, Reviewer Checklist
+  - Improved prompt engineering for better, more consistent outputs
+  - Templates now include constraints like "Use only Markdown" and "Do not invent changes"
+
+- **Release Workflow**: Simplified to verify-only approach
+  - Removed auto-commit step that pushed back to the branch
+  - Added explicit file verification for marketplace compliance
+  - Requires `action.yml` and `dist/index.js` to exist in the tagged commit
+
+### Added
+
+- **Documentation**: Comprehensive documentation suite
+  - `docs/ARCHITECTURE.md` - System design and component overview
+  - `docs/DEVELOPMENT.md` - Setup, workflow, and development guide
+  - `docs/ISSUE_TICKETS.md` - Templates for feature requests and bug reports
+  - `docs/TEMPLATES.md` - Reference guide for all templates
+  - `docs/USER_GUIDE.md` - End-user documentation with examples
+
+- **Type Safety**: New explicit type definitions
+  - `apps/github-action/src/octokit-types.ts` - Dedicated Octokit type definitions
+  - Improved TypeScript strictness across action source files
+
+### Fixed
+
+- **Code Quality**: Cleaned up unused imports across action source files
+- **Model Input Handling**: Simplified model input logic with proper trimming
+- **Import Organization**: Consolidated imports in core action files
+
+### Developer Experience
+
+- **Cursor Integration**: Added Cursor skills for refactor planning
+  - `.cursor/skills/lazypr-refactor-planning/SKILL.md`
+  - Scripts for scaffolding refactor specifications
+
 ## [1.0.0] - 2026-01-18
 
 ### Added

@@ -38,6 +38,12 @@ export interface SummarizerOptions {
   model?: string;
   /** API key for the LLM provider (optional, uses env var if not provided) */
   apiKey?: string;
+  /** Pull Request title (used in prompt variables) */
+  prTitle?: string;
+  /** Existing Pull Request description/body (used in prompt variables) */
+  prBody?: string;
+  /** Pull Request author username (used in prompt variables) */
+  prAuthor?: string;
   /** Custom system prompt to use instead of template default */
   systemPrompt?: string;
   /** Custom prompt template string */

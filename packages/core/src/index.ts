@@ -312,8 +312,46 @@ export class GhostCommitDetector {
     return results;
   }
 
-  private extractCommitDiff(_diff: string, _sha: string): string {
-    return "";
+  /**
+   * Detects ghost commits from per-commit diffs (recommended).
+   *
+   * @param commits - Commits with their individual diffs/patches
+   */
+  async detectFromCommitDiffs(
+    commits: Array<{ sha: string; message: string; diff: string }>,
+  ): Promise<GhostCommitResult[]> {
+    const results: GhostCommitResult[] = [];
+
+    for (const commit of commits) {
+      const keywords = this.extractKeywords(commit.message);
+      const hasMismatch = this.checkMismatch(commit.diff, keywords);
+
+      results.push({
+        sha: commit.sha,
+        message: commit.message,
+        detected: hasMismatch.detected,
+        reason: hasMismatch.reason,
+      });
+    }
+
+    return results;
+  }
+
+  private extractCommitDiff(diff: string, sha: string): string {
+    // Best-effort extraction for diffs that include "From <sha>" markers
+    // (e.g. `git format-patch`). If absent, fall back to the full diff.
+    const marker = `From ${sha}`;
+    const start = diff.indexOf(marker);
+    if (start === -1) {
+      return diff;
+    }
+
+    const next = diff.indexOf("\nFrom ", start + marker.length);
+    if (next === -1) {
+      return diff.substring(start);
+    }
+
+    return diff.substring(start, next);
   }
 
   private extractKeywords(message: string): string[] {
@@ -381,10 +419,44 @@ export class GhostCommitDetector {
   }
 
   private checkMismatch(
-    _commitDiff: string,
-    _keywords: string[],
+    commitDiff: string,
+    keywords: string[],
   ): { detected: boolean; reason?: string } {
-    return { detected: false };
+    const trimmedDiff = commitDiff.trim();
+    if (trimmedDiff.length === 0) {
+      return { detected: false, reason: "No diff available for commit" };
+    }
+
+    if (keywords.length === 0) {
+      return { detected: false };
+    }
+
+    const diffLower = trimmedDiff.toLowerCase();
+
+    const matched: string[] = [];
+    const missing: string[] = [];
+
+    for (const keyword of keywords) {
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`\\b${escaped}\\b`, "i");
+      if (re.test(diffLower)) {
+        matched.push(keyword);
+      } else {
+        missing.push(keyword);
+      }
+    }
+
+    const matchRatio = matched.length / keywords.length;
+    const detected = matchRatio < this.sensitivityThreshold;
+
+    if (!detected) {
+      return { detected: false };
+    }
+
+    const missingSample = missing.slice(0, 8).join(", ");
+    const reason = missing.length > 0 ? `Keywords not found in diff: ${missingSample}` : undefined;
+
+    return { detected: true, reason };
   }
 }
 

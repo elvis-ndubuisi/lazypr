@@ -9,110 +9,156 @@ const TEMPLATES: Record<string, PromptTemplate> = {
   securityFocused: {
     name: "Security Focused",
     description: "Emphasize security implications, auth changes, and potential vulnerabilities",
-    template: `## Security Analysis
+    template: `You are an expert code reviewer. Generate a concise Markdown PR summary with a security focus.
 
-Analyze this pull request with a focus on security concerns:
+Constraints:
+- Use only Markdown (no code fences).
+- Do not include a top-level title heading.
+- Do not invent changes that are not in the diff.
 
-### Files Changed
+PR Context:
+- Title: {{prTitle}}
+- Author: {{prAuthor}}
+- Existing description: {{prBody}}
+
+Risk Signals (precomputed):
+- Risk level: {{riskLevel}}
+- Risk score: {{riskScore}}/100
+- High-risk files: {{highRiskFiles}}
+- File breakdown: {{fileBreakdown}}
+
+Files changed:
 {{filesChanged}}
 
-### Diff
+Diff:
 {{diff}}
 
-### Risk Assessment
-Classify the risk level as **LOW**, **MEDIUM**, or **HIGH** based on:
-- Changes to authentication/authorization logic
-- Database/schema modifications
-- API endpoint changes
-- Sensitive data handling
-- Dependency updates
+Output format (exact headings):
+### TL;DR
+<1-2 sentences>
 
-### Security Concerns
-List any potential security issues found:
-- [ ] Authentication bypass risks
-- [ ] Authorization/permission issues
-- [ ] Input validation problems
-- [ ] SQL injection risks
-- [ ] XSS/CSRF vulnerabilities
-- [ ] Secrets exposure
-- [ ] Dependency vulnerabilities
+### Key Changes
+- <bullets>
+
+### Security Analysis
+- <bullets about auth, secrets, validation, dependencies, permissions, DB risks>
 
 ### Reviewer Checklist
-- [ ] Verify auth logic changes
-- [ ] Check for hardcoded credentials
-- [ ] Validate input sanitization
-- [ ] Review database migrations`,
+- <bullets>`,
   },
   concise: {
     name: "Concise",
     description: "Brief summary only",
-    template: `## PR Summary
+    template: `You are a helpful assistant that summarizes pull requests concisely.
 
-**TL;DR:** {{prTitle}}
+Constraints:
+- Use only Markdown (no code fences).
+- Do not include a top-level title heading.
+- Do not include the full diff back in the output.
+- Keep it short.
+
+PR Context:
+- Title: {{prTitle}}
+- Author: {{prAuthor}}
+
+Risk Signals (precomputed):
+- Risk level: {{riskLevel}}
+- Risk score: {{riskScore}}/100
+
+Files changed:
+{{filesChanged}}
+
+Diff:
+{{diff}}
+
+Output format (exact headings):
+### TL;DR
+<1 sentence>
 
 ### Key Changes
-- {{summary}}
-
-### Risk Level: {{riskLevel}}`,
+- <3-6 bullets>`,
     systemPrompt:
       "You are a helpful assistant that summarizes pull requests concisely. Keep your response brief and focused on the most important changes.",
   },
   verbose: {
     name: "Verbose",
     description: "Detailed analysis with file breakdown",
-    template: `## Detailed PR Analysis
+    template: `You are an expert reviewer. Produce a Detailed PR Analysis and a detailed Markdown PR summary.
 
-### Pull Request Information
-- **Title:** {{prTitle}}
-- **Author:** {{prAuthor}}
-- **Files Changed:** {{filesChanged}}
-- **Commits:** {{commitCount}}
+Constraints:
+- Use only Markdown (no code fences).
+- Do not include a top-level title heading.
+- Do not invent changes that are not in the diff.
 
-### Summary
-{{prBody}}
+PR Context:
+- Title: {{prTitle}}
+- Author: {{prAuthor}}
+- Existing description: {{prBody}}
 
-### Files Breakdown
-{{fileBreakdown}}
+Risk Signals (precomputed):
+- Risk level: {{riskLevel}}
+- Risk score: {{riskScore}}/100
+- High-risk files: {{highRiskFiles}}
+- File breakdown: {{fileBreakdown}}
 
-### Code Changes Analysis
-{{detailedAnalysis}}
+Files changed:
+{{filesChanged}}
 
-### Risk Assessment: {{riskLevel}}
+Diff:
+{{diff}}
 
-### Impact Areas
-- **Breaking Changes:** {{breakingChanges}}
-- **Deprecations:** {{deprecations}}
-- **New Dependencies:** {{newDeps}}
-- **Removed Features:** {{removedFeatures}}
+Output format (exact headings):
+### TL;DR
+<2-3 sentences>
 
-### Reviewer Checklist
-- [ ] Code quality review
-- [ ] Test coverage verification
-- [ ] Documentation updates
-- [ ] Security review (if applicable)
-- [ ] Performance impact assessment
+### Key Changes
+- <bullets>
 
 ### Notes for Reviewers
-{{additionalNotes}}`,
+- <bullets>
+
+### Reviewer Checklist
+- <bullets>`,
   },
   default: {
     name: "Default",
     description: "Standard PR summary template",
-    template: `## 🚀 PR Summary: {{prTitle}}
+    template: `You are lazypr, an assistant that generates clear PR summaries from diffs.
 
+Constraints:
+- Use only Markdown (no code fences).
+- Do not include a top-level title heading.
+- Do not invent changes that are not in the diff.
+
+PR Context:
+- Title: {{prTitle}}
+- Author: {{prAuthor}}
+- Existing description: {{prBody}}
+
+Risk Signals (precomputed):
+- Risk level: {{riskLevel}}
+- Risk score: {{riskScore}}/100
+- High-risk files: {{highRiskFiles}}
+- File breakdown: {{fileBreakdown}}
+
+Files changed:
+{{filesChanged}}
+
+Diff:
+{{diff}}
+
+Output format (exact headings):
 ### TL;DR
-{{tlDr}}
+<1-2 sentences>
 
-### 🛠 Key Changes
-{{keyChanges}}
+### Key Changes
+- <bullets>
 
-### 📊 Risk Assessment: {{riskLevel}}
+### Notes for Reviewers
+- <bullets>
 
-### 🕵️ Reviewer Checklist
-{{reviewerChecklist}}
-
----
-*Generated by lazypr*`,
+### Reviewer Checklist
+- <bullets>`,
   },
 };
 

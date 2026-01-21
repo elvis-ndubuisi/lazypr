@@ -35,6 +35,9 @@ export async function generatePRSummar(
   const systemPrompt: string | undefined = options?.systemPrompt;
 
   const prompt = buildPrompt(template, {
+    prTitle: options?.prTitle ?? "",
+    prBody: options?.prBody ?? "",
+    prAuthor: options?.prAuthor ?? "",
     diff: truncateDiff(diff, 15000),
     filesChanged: changedFiles.join(", "),
     riskLevel,
@@ -50,7 +53,7 @@ export async function generatePRSummar(
     systemPrompt,
   });
 
-  const summary = parseSummaryFromResponse(completion.text, riskLevel);
+  const summary = parseSummaryFromResponse(completion.text);
 
   return {
     summary,
@@ -79,6 +82,9 @@ function getDefaultModel(provider: LLMProviderType): string {
 }
 
 interface PromptVariables {
+  prTitle: string;
+  prBody: string;
+  prAuthor: string;
   diff: string;
   filesChanged: string;
   riskLevel: RiskLevel;
@@ -97,9 +103,9 @@ function buildPrompt(template: string, variables: PromptVariables): string {
   prompt = prompt.replace(/\{\{highRiskFiles\}\}/g, variables.highRiskFiles);
   prompt = prompt.replace(/\{\{fileBreakdown\}\}/g, variables.fileBreakdown);
 
-  prompt = prompt.replace(/\{\{prTitle\}\}/g, "(Available in PR context)");
-  prompt = prompt.replace(/\{\{prBody\}\}/g, "(Available in PR context)");
-  prompt = prompt.replace(/\{\{prAuthor\}\}/g, "(Available in PR context)");
+  prompt = prompt.replace(/\{\{prTitle\}\}/g, variables.prTitle || "Untitled PR");
+  prompt = prompt.replace(/\{\{prBody\}\}/g, variables.prBody || "(No existing PR description)");
+  prompt = prompt.replace(/\{\{prAuthor\}\}/g, variables.prAuthor || "unknown");
 
   return prompt;
 }
@@ -148,7 +154,7 @@ function formatFileBreakdown(riskSummary: {
   return lines.join(", ") || "No files changed";
 }
 
-function parseSummaryFromResponse(response: string, riskLevel: RiskLevel): string {
+function parseSummaryFromResponse(response: string): string {
   let summary = response.trim();
 
   const sectionMarkers = [
@@ -181,45 +187,40 @@ function parseSummaryFromResponse(response: string, riskLevel: RiskLevel): strin
     }
   }
 
-  if (!summary.toLowerCase().includes("risk")) {
-    const riskHeader = `### Risk Assessment: ${riskLevel}\n\n`;
-    summary = `${riskHeader}${summary}`;
-  }
-
   return summary;
 }
 
 function generateDefaultChecklist(files: string[], riskLevel: RiskLevel): string[] {
   const checklist: string[] = [];
 
-  checklist.push("[ ] Code follows project conventions");
-  checklist.push("[ ] Tests pass locally");
+  checklist.push("Code follows project conventions");
+  checklist.push("Tests pass locally");
 
   if (riskLevel === "HIGH") {
-    checklist.push("[ ] Security review completed");
-    checklist.push("[ ] Data migration verified");
+    checklist.push("Security review completed");
+    checklist.push("Data migration verified");
   }
 
   if (riskLevel === "MEDIUM") {
-    checklist.push("[ ] Edge cases considered");
+    checklist.push("Edge cases considered");
   }
 
   const hasSql = files.some((f) => /\.sql$/i.test(f));
   if (hasSql) {
-    checklist.push("[ ] Migration is reversible");
-    checklist.push("[ ] Database backup verified");
+    checklist.push("Migration is reversible");
+    checklist.push("Database backup verified");
   }
 
   const hasAuth = files.some((f) => /auth|login|logout|permission|role/i.test(f));
   if (hasAuth) {
-    checklist.push("[ ] Authentication flow tested");
-    checklist.push("[ ] Authorization checks verified");
+    checklist.push("Authentication flow tested");
+    checklist.push("Authorization checks verified");
   }
 
   const hasApi = files.some((f) => /controller|route|endpoint|handler|api/i.test(f));
   if (hasApi) {
-    checklist.push("[ ] API documentation updated");
-    checklist.push("[ ] Response format verified");
+    checklist.push("API documentation updated");
+    checklist.push("Response format verified");
   }
 
   return checklist;

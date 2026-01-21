@@ -1,5 +1,5 @@
 import * as core from "@actions/core";
-import type { Octokit } from "@octokit/rest";
+import type { OctokitClient } from "./octokit-types.js";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -30,7 +30,10 @@ export const RISK_LABELS = {
 
 const ALL_RISK_LABEL_NAMES = [RISK_LABELS.HIGH.name, RISK_LABELS.MEDIUM.name, RISK_LABELS.LOW.name];
 
-export async function updateRiskLabels(octokit: Octokit, options: LabelOptions): Promise<void> {
+export async function updateRiskLabels(
+  octokit: OctokitClient,
+  options: LabelOptions,
+): Promise<void> {
   const { owner, repo, pullNumber, riskLevel } = options;
 
   const existingLabels = await getPRLabels(octokit, owner, repo, pullNumber);
@@ -42,7 +45,7 @@ export async function updateRiskLabels(octokit: Octokit, options: LabelOptions):
   for (const label of labelsToRemove) {
     if (existingLabels.includes(label)) {
       try {
-        await octokit.issues.removeLabel({
+        await octokit.rest.issues.removeLabel({
           owner,
           repo,
           issue_number: pullNumber,
@@ -60,7 +63,7 @@ export async function updateRiskLabels(octokit: Octokit, options: LabelOptions):
   const targetLabel = RISK_LABELS[riskLevel].name;
   if (!existingLabels.includes(targetLabel)) {
     try {
-      await octokit.issues.addLabels({
+      await octokit.rest.issues.addLabels({
         owner,
         repo,
         issue_number: pullNumber,
@@ -73,13 +76,13 @@ export async function updateRiskLabels(octokit: Octokit, options: LabelOptions):
 }
 
 async function getPRLabels(
-  octokit: Octokit,
+  octokit: OctokitClient,
   owner: string,
   repo: string,
   pullNumber: number,
 ): Promise<string[]> {
   try {
-    const response = await octokit.pulls.get({
+    const response = await octokit.rest.pulls.get({
       owner,
       repo,
       pull_number: pullNumber,
@@ -97,7 +100,7 @@ async function getPRLabels(
 }
 
 export async function ensureLabelsExist(
-  octokit: Octokit,
+  octokit: OctokitClient,
   owner: string,
   repo: string,
 ): Promise<void> {
@@ -112,7 +115,7 @@ export async function ensureLabelsExist(
       const octokitError = error as { status?: number };
       if (octokitError.status === 404) {
         try {
-          await octokit.issues.createLabel({
+          await octokit.rest.issues.createLabel({
             owner,
             repo,
             name: labelConfig.name,

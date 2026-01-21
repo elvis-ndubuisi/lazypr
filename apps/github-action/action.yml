@@ -2,9 +2,6 @@ name: "LazyPR AI PR Summary"
 
 description: "Generates AI-powered PR summaries with Ghost Commit detection, impact scoring, and automated reviewer checklists"
 author: "elvis-ndubuisi"
-homepage: "https://github.com/elvis-ndubuisi/lazypr"
-repository: "https://github.com/elvis-ndubuisi/lazypr"
-license: "MIT"
 
 inputs:
   api_key:
@@ -19,9 +16,17 @@ inputs:
     required: false
     default: ""
   template:
-    description: "Prompt template to use (default, concise, verbose, security-focused)"
+    description: "Built-in prompt preset to use (default, concise, verbose, security-focused). Ignored if a valid custom template is found."
     required: false
     default: "default"
+  custom_template:
+    description: "Whether to load a custom template from the repository (true/false)"
+    required: false
+    default: "true"
+  custom_template_path:
+    description: "Optional explicit path to a custom template file in the repo (e.g. .github/lazypr-template.md)"
+    required: false
+    default: ""
   github_token:
     description: "GitHub token for API access (automatically provided by GitHub Actions)"
     required: true

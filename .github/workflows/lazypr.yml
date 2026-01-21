@@ -1,0 +1,27 @@
+name: Test LazyPR with Gemini
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lazypr-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run lazypr with Gemini
+        uses: elvis-ndubuisi/lazypr@v1
+        with:
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          provider: gemini
+          custom_template: true
+          template: default
+          github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -77424,9 +77424,10 @@ function buildLazyprSection(options) {
   const checklistSection = options.checklist?.length ? `
 
 ${formatChecklistForMarkdown(options.checklist)}` : "";
-  const ghostCommitsSection = options.ghostCommits?.length ? `
+  const ghostCommitsMarkdown = options.ghostCommits ? formatGhostCommitsForMarkdown(options.ghostCommits) : "";
+  const ghostCommitsSection = ghostCommitsMarkdown ? `
 
-${formatGhostCommitsForMarkdown(options.ghostCommits)}` : "";
+${ghostCommitsMarkdown}` : "";
   const section = `${LAZYPR_SECTION_START}
 ## \uD83D\uDE80 PR Summary${titlePart}
 

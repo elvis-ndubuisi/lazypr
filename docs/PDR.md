@@ -1,8 +1,8 @@
-# Product Design Document: AutoPR-Summary
+# Product Design Document: LazyPR
 
 ## 1. Executive Summary
 
-**LazyCommit** is an open-source GitHub Action that automatically generates high-quality Pull Request descriptions. It analyzes git diffs and commit history using a user-provided LLM API key to provide context-aware summaries, impact assessments, and change logs.
+**LazyPR** is an open-source GitHub Action that automatically generates high-quality Pull Request descriptions. It analyzes git diffs (and selected commit history signals) using a user-provided LLM API key to provide context-aware summaries, impact assessments, and reviewer checklists.
 
 ## 2. Problem Statement
 
@@ -25,7 +25,7 @@
 
 - **Impact Scoring:** Uses AI to categorize the PR as `Low`, `Medium`, or `High` risk based on the sensitivity of files changed (e.g., changes to `auth.js` or `database/schema` trigger high risk).
 - **"Ghost" Commit Detection:** Identifies discrepancies where a commit message says one thing (e.g., "Refactor UI") but the code actually does another (e.g., "Deleted API endpoint").
-- **Custom Prompt Templates:** Allows teams to check in a `.github/pr-prompt.md` file to force the AI to follow a specific team-defined voice or format.
+- **Custom Prompt Templates:** Allows teams to check in a custom template file (e.g. `.github/lazypr-template.md`) to force the AI to follow a specific team-defined voice or format.
 - **Automated Reviewer Checklist:** Generates a tailored checklist for the reviewer (e.g., "Ensure you check the migration script for data loss" if the AI detects SQL changes).
 - **Visual Diff Map:** Uses Markdown tables to show "Before" vs "After" logic flow for complex functions.
 
@@ -57,7 +57,7 @@
 
 ### User Setup
 
-The user adds a `.github/workflows/autopr.yml` file to their repo:
+The user adds a `.github/workflows/lazypr.yml` file to their repo:
 
 ```yaml
 name: AutoPR Summary
@@ -71,7 +71,9 @@ jobs:
         with:
           api_key: ${{ secrets.GEMINI_API_KEY }}
           provider: gemini
-          template: ".github/my-custom-prompt.md"
+          template: default
+          custom_template: true
+          custom_template_path: ".github/my-custom-prompt.md"
 ```
 
 ### The Output (The PR Body)

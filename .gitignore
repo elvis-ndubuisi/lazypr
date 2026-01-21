@@ -4,6 +4,8 @@ node_modules
 # output
 out
 dist
+!/dist/
+!/dist/index.js
 *.tgz
 
 # code coverage

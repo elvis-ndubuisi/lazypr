@@ -1,19 +1,11 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { type RiskLevel, createLangChainProvider, generatePRSummar } from "@lazypr/ai-engine";
+import { type RiskLevel, generatePRSummar } from "@lazypr/ai-engine";
 import { getTemplate } from "@lazypr/config-presets";
-import {
-  DiffSanitizer,
-  GhostCommitDetector,
-  type ParsedFile,
-  TokenManager,
-  extractChangedFiles,
-  getGitDiff,
-  getPRMetadata,
-} from "@lazypr/core";
-import { Octokit } from "@octokit/rest";
+import { DiffSanitizer, GhostCommitDetector, TokenManager, getGitDiff } from "@lazypr/core";
 import { ensureLabelsExist, getRiskLabelEmoji, updateRiskLabels } from "./label-manager.js";
-import { formatChecklistForMarkdown, getCurrentPRBody, updatePRDescription } from "./pr-updater.js";
+import type { OctokitClient } from "./octokit-types.js";
+import { formatChecklistForMarkdown, updatePRDescription } from "./pr-updater.js";
 import { loadCustomTemplate, sanitizeTemplate, validateTemplate } from "./template-loader.js";
 
 /**
@@ -32,6 +24,8 @@ interface Inputs {
   githubToken: string;
   /** Whether to enable loading custom templates from the repository */
   customTemplateEnabled: boolean;
+  /** Optional explicit repository path for the custom template */
+  customTemplatePath?: string;
 }
 
 /**
@@ -64,8 +58,8 @@ interface PRContext {
  */
 function getInputs(): Inputs {
   const providerInput = core.getInput("provider");
-  const modelInput = core.getInput("model");
   const provider = (providerInput as "openai" | "anthropic" | "gemini") || "openai";
+  const modelInput = core.getInput("model");
 
   let defaultModel = "gpt-4-turbo";
   if (provider === "gemini") {
@@ -74,10 +68,7 @@ function getInputs(): Inputs {
     defaultModel = "claude-sonnet-4-20250514";
   }
 
-  const model =
-    modelInput && !modelInput.includes("gpt-4") && !modelInput.includes("turbo")
-      ? modelInput
-      : defaultModel;
+  const model = modelInput && modelInput.trim().length > 0 ? modelInput.trim() : defaultModel;
 
   return {
     apiKey: core.getInput("api_key", { required: true }),
@@ -86,6 +77,7 @@ function getInputs(): Inputs {
     template: core.getInput("template") || "default",
     githubToken: core.getInput("github_token") || process.env.GITHUB_TOKEN || "",
     customTemplateEnabled: core.getInput("custom_template") !== "false",
+    customTemplatePath: core.getInput("custom_template_path") || undefined,
   };
 }
 
@@ -113,31 +105,6 @@ function getPRContext(): PRContext {
     body: pullRequest.body || "",
     author: pullRequest.user?.login || "unknown",
   };
-}
-
-/**
- * Creates an LLM provider based on the configured provider type.
- *
- * @param inputs - The action inputs containing provider configuration
- * @returns Configured LLMProvider instance
- */
-function _createProvider(inputs: Inputs): ReturnType<typeof createLangChainProvider> {
-  let provider: "anthropic" | "openai" | "gemini" = "openai";
-  let model = inputs.model || "gpt-4-turbo";
-
-  if (inputs.provider === "gemini") {
-    provider = "gemini";
-    model = inputs.model || "gemini-2.5-flash";
-  } else if (inputs.provider === "anthropic") {
-    provider = "anthropic";
-    model = inputs.model || "claude-sonnet-4-20250514";
-  }
-
-  return createLangChainProvider({
-    provider,
-    apiKey: inputs.apiKey,
-    model,
-  });
 }
 
 /**
@@ -184,7 +151,7 @@ async function run(): Promise<void> {
       `Processing PR #${String(prContext.pullNumber)} in ${prContext.owner}/${prContext.repo}`,
     );
 
-    const octokit = new Octokit({ auth: inputs.githubToken });
+    const octokit = github.getOctokit(inputs.githubToken);
 
     await ensureLabelsExist(octokit, prContext.owner, prContext.repo);
 
@@ -212,7 +179,12 @@ async function run(): Promise<void> {
 
     if (inputs.customTemplateEnabled) {
       core.info("Checking for custom template...");
-      const customTemplate = await loadCustomTemplate(octokit, prContext.owner, prContext.repo);
+      const customTemplate = await loadCustomTemplate(
+        octokit,
+        prContext.owner,
+        prContext.repo,
+        inputs.customTemplatePath,
+      );
 
       if (customTemplate) {
         const validation = validateTemplate(customTemplate);
@@ -262,11 +234,14 @@ async function run(): Promise<void> {
       model: inputs.model,
       customTemplate: templateContent,
       systemPrompt,
+      prTitle: prContext.title,
+      prBody: prContext.body,
+      prAuthor: prContext.author,
     });
 
     core.info(`Summary generated. Risk level: ${result.riskLevel}`);
 
-    const ghostCommitResults = await detectGhostCommits(diff, inputs.githubToken, prContext);
+    const ghostCommitResults = await detectGhostCommits(octokit, prContext);
 
     const hasGhostCommits = ghostCommitResults.some((r) => r.detected);
 
@@ -332,16 +307,35 @@ async function run(): Promise<void> {
  * @returns Array of ghost commit detection results
  */
 async function detectGhostCommits(
-  diff: string,
-  token: string,
+  octokit: OctokitClient,
   prContext: PRContext,
 ): Promise<Array<{ sha: string; message: string; detected: boolean; reason?: string }>> {
   try {
     const detector = new GhostCommitDetector();
 
-    const commits = extractCommitsFromGitHub(prContext, token);
+    const commits = await listPullRequestCommits(octokit, prContext);
+    const commitsToAnalyze = commits.slice(-MAX_GHOST_COMMITS_TO_ANALYZE);
 
-    const results = await detector.detect(diff, commits);
+    const commitsWithDiff: Array<{ sha: string; message: string; diff: string }> = [];
+
+    for (const commit of commitsToAnalyze) {
+      const commitDiff = await fetchCommitDiff(
+        octokit,
+        prContext.owner,
+        prContext.repo,
+        commit.sha,
+      );
+      if (!commitDiff) {
+        continue;
+      }
+      commitsWithDiff.push({
+        sha: commit.sha,
+        message: commit.message,
+        diff: commitDiff,
+      });
+    }
+
+    const results = await detector.detectFromCommitDiffs(commitsWithDiff);
 
     return results;
   } catch (error) {
@@ -350,31 +344,50 @@ async function detectGhostCommits(
   }
 }
 
-/**
- * Extracts commit information from the GitHub PR payload.
- *
- * @param prContext - PR context information
- * @param _token - GitHub API token (currently unused)
- * @returns Array of commits with SHA and message
- */
-function extractCommitsFromGitHub(
-  _prContext: PRContext,
-  _token: string,
-): Array<{ sha: string; message: string }> {
-  const commits: Array<{ sha: string; message: string }> = [];
+const MAX_GHOST_COMMITS_TO_ANALYZE = 20;
 
-  const pr = github.context.payload.pull_request;
+async function listPullRequestCommits(
+  octokit: OctokitClient,
+  prContext: PRContext,
+): Promise<Array<{ sha: string; message: string }>> {
+  const response = await octokit.rest.pulls.listCommits({
+    owner: prContext.owner,
+    repo: prContext.repo,
+    pull_number: prContext.pullNumber,
+    per_page: 100,
+  });
 
-  if (pr && typeof pr.commits === "number") {
-    for (let i = 0; i < Math.min(pr.commits, 100); i++) {
-      commits.push({
-        sha: `commit-${String(i)}`,
-        message: "Commit extraction requires GitHub API",
-      });
-    }
+  return response.data
+    .map((c) => ({
+      sha: c.sha,
+      // Prefer the first line (subject) for keyword extraction.
+      message: (c.commit?.message ?? "").split("\n")[0] ?? "",
+    }))
+    .filter((c) => c.sha.length > 0);
+}
+
+async function fetchCommitDiff(
+  octokit: OctokitClient,
+  owner: string,
+  repo: string,
+  sha: string,
+): Promise<string | null> {
+  try {
+    const response = await octokit.request<string>("GET /repos/{owner}/{repo}/commits/{ref}", {
+      owner,
+      repo,
+      ref: sha,
+      headers: {
+        accept: "application/vnd.github.v3.diff",
+      },
+    });
+
+    const data = response.data;
+    return typeof data === "string" ? data : null;
+  } catch (error) {
+    core.warning(`Failed to fetch commit diff for ${sha.substring(0, 7)}: ${error}`);
+    return null;
   }
-
-  return commits;
 }
 
 /**

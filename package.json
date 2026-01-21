@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "build": "turbo build",
+    "build:action": "cd apps/github-action && bun run build",
+    "bundle:marketplace": "bun run build:action && mkdir -p dist && cp apps/github-action/dist/index.js dist/index.js",
     "dev": "turbo dev",
     "test": "turbo test",
     "lint": "turbo lint",

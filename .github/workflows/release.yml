@@ -28,27 +28,21 @@ jobs:
         run: bun install
 
       - name: Build and Bundle
-        # We build the action and ensure the bundled output is in a known location
+        # Build workspace + bundle the GitHub Action.
         run: |
           bun run build
           cd apps/github-action && bun run build
 
-      - name: Prepare Root for Marketplace
-        # GitHub Marketplace looks at the ROOT. We copy necessary files there.
+      - name: Verify Marketplace bundle is checked in
+        # Marketplace requires `action.yml` and `dist/index.js` in the tagged commit.
         run: |
-          cp apps/github-action/action.yml ./action.yml
+          git ls-files --error-unmatch ./action.yml
+          git ls-files --error-unmatch ./dist/index.js
           mkdir -p ./dist
           cp apps/github-action/dist/index.js ./dist/index.js
-
-      - name: Commit Marketplace Files
-        # We push the 'bundled' files back to the repo so users @v1 can find them
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add action.yml dist/index.js
-          git commit -m "chore: prepare release assets for ${{ github.ref_name }}"
-          # Use --force to update the tag if necessary, or just push to the branch
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git diff --exit-code -- ./dist/index.js
+          test -f ./action.yml
+          test -f ./dist/index.js
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

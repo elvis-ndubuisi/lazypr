@@ -1,5 +1,5 @@
 import * as core from "@actions/core";
-import type { Octokit } from "@octokit/rest";
+import type { OctokitClient } from "./octokit-types.js";
 
 const CUSTOM_TEMPLATE_PATHS = [
   ".github/lazypr-template.md",
@@ -8,13 +8,25 @@ const CUSTOM_TEMPLATE_PATHS = [
 ];
 
 export async function loadCustomTemplate(
-  octokit: Octokit,
+  octokit: OctokitClient,
   owner: string,
   repo: string,
+  customTemplatePath?: string,
 ): Promise<string | null> {
-  for (const templatePath of CUSTOM_TEMPLATE_PATHS) {
+  const pathsToTry = [
+    ...(customTemplatePath ? [customTemplatePath] : []),
+    ...CUSTOM_TEMPLATE_PATHS,
+  ];
+
+  const seen = new Set<string>();
+  for (const templatePath of pathsToTry) {
+    if (seen.has(templatePath)) {
+      continue;
+    }
+    seen.add(templatePath);
+
     try {
-      const response = await octokit.repos.getContent({
+      const response = await octokit.rest.repos.getContent({
         owner,
         repo,
         path: templatePath,

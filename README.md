@@ -8,7 +8,7 @@ Most AI summarizers just look at commit messages. **lazypr** looks at the code.
 
 - **Ghost Commit Detection:** Flags when code changes don't match the developer's commit descriptions.
 - **Impact Scoring:** Automatically labels PRs as `Low`, `Medium`, or `High` risk based on file sensitivity.
-- **Bring Your Own Key (BYOK):** Use your own OpenAI, Anthropic, or local LLM keys via Bun/Node environment variables.
+- **Bring Your Own Key (BYOK):** Use your own OpenAI, Anthropic, or Gemini API key.
 - **Developer-First:** Built as a lightning-fast Bun monorepo, compiled for Node.js runtime.
 
 ---
@@ -23,7 +23,8 @@ lazypr/
 │   └── github-action/    # The entry point for GitHub Actions (bundled for Node)
 ├── packages/
 │   ├── core/             # Git logic, diff sanitization, and "Ghost" detection
-│   └── ai-engine/        # Multi-provider LLM orchestration
+│   ├── ai-engine/        # Multi-provider LLM orchestration
+│   └── config-presets/   # Built-in prompt templates
 └── package.json          # Workspace configurations
 
 ```
@@ -75,11 +76,22 @@ Add this to your repository's `.github/workflows/lazypr.yml`:
 ```yaml
 - uses: elvis-ndubuisi/lazypr@v1
   with:
+    github_token: ${{ secrets.GITHUB_TOKEN }}
     api_key: ${{ secrets.GEMINI_API_KEY }} # or OPENAI_API_KEY / ANTHROPIC_API_KEY
     provider: gemini # openai, anthropic, or gemini
+    template: default # or concise, verbose, security
     # Optional: custom prompt template
-    template: ".github/lazypr-template.md"
+    custom_template: true
+    custom_template_path: ".github/lazypr-template.md"
 ```
+
+## 📚 Documentation
+
+- `docs/USER_GUIDE.md`
+- `docs/TEMPLATES.md`
+- `docs/DEVELOPMENT.md`
+- `docs/ARCHITECTURE.md`
+- `docs/SPEC.md`
 
 ---
 
@@ -91,7 +103,3 @@ This is an open-source project. We value logic over "paperwork."
 2. `bun install`
 3. Write code that matters.
 4. Let **lazypr** write the PR summary for you.
-
-# Test Update
-
-// Testing lazypr Gemini integration Sat Jan 17 06:08:52 WAT 2026

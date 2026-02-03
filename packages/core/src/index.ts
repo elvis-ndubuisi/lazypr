@@ -462,3 +462,15 @@ export class GhostCommitDetector {
 
 export { DiffSanitizer, type ParsedFile } from "./diff-sanitizer.js";
 export { TokenManager, type TokenWeight, type TruncateOptions } from "./token-manager.js";
+export {
+  PRTitleEnhancer,
+  analyzeTitle,
+  type TitleEnhancementResult,
+} from "./pr-title-enhancer.js";
+export {
+  detectTickets,
+  detectTicketsFromSources,
+  formatTicketsMarkdown,
+  type TicketMatch,
+  type TicketDetectionOptions,
+} from "./ticket-detector.js";

@@ -74,6 +74,7 @@ export function sanitizeTemplate(template: string): string {
   sanitized = sanitized.replace(/\{\{riskScore\}\}/g, "{{riskScore}}");
   sanitized = sanitized.replace(/\{\{highRiskFiles\}\}/g, "{{highRiskFiles}}");
   sanitized = sanitized.replace(/\{\{fileBreakdown\}\}/g, "{{fileBreakdown}}");
+  sanitized = sanitized.replace(/\{\{relatedTickets\}\}/g, "{{relatedTickets}}");
 
   return sanitized;
 }
@@ -113,6 +114,7 @@ export function validateTemplate(template: string): TemplateValidationResult {
     "{{riskScore}}",
     "{{highRiskFiles}}",
     "{{fileBreakdown}}",
+    "{{relatedTickets}}",
   ];
   for (const placeholder of optionalPlaceholders) {
     if (template.includes(placeholder)) {

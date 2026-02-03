@@ -2,6 +2,11 @@
 
 This directory contains a collection of specialized and generic templates for the **lazypr** AI-powered GitHub Action. These templates allow you to customize how the AI summarizes your Pull Requests based on your specific needs or audience.
 
+## 🌐 GitHub Repository
+
+You can find all these templates online at:
+[https://github.com/elvis-ndubuisi/lazypr/tree/main/templates](https://github.com/elvis-ndubuisi/lazypr/tree/main/templates)
+
 ## 🚀 How to Use These Templates
 
 ### Option 1: The Default Template (Easiest)

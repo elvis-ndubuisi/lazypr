@@ -2,10 +2,18 @@ import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { type RiskLevel, generatePRSummar } from "@lazypr/ai-engine";
 import { getTemplate } from "@lazypr/config-presets";
-import { DiffSanitizer, GhostCommitDetector, TokenManager, getGitDiff } from "@lazypr/core";
+import {
+  DiffSanitizer,
+  GhostCommitDetector,
+  PRTitleEnhancer,
+  TokenManager,
+  detectTicketsFromSources,
+  formatTicketsMarkdown,
+  getGitDiff,
+} from "@lazypr/core";
 import { ensureLabelsExist, getRiskLabelEmoji, updateRiskLabels } from "./label-manager.js";
 import type { OctokitClient } from "./octokit-types.js";
-import { formatChecklistForMarkdown, updatePRDescription } from "./pr-updater.js";
+import { formatChecklistForMarkdown, updatePRDescription, updatePRTitle } from "./pr-updater.js";
 import { loadCustomTemplate, sanitizeTemplate, validateTemplate } from "./template-loader.js";
 
 /**
@@ -26,6 +34,12 @@ interface Inputs {
   customTemplateEnabled: boolean;
   /** Optional explicit repository path for the custom template */
   customTemplatePath?: string;
+  /** Custom regex pattern for ticket ID detection */
+  ticketPattern?: string;
+  /** URL template for ticket links (use {{id}} placeholder) */
+  ticketUrlTemplate?: string;
+  /** Whether to auto-update vague PR titles */
+  autoUpdateTitle: boolean;
 }
 
 /**
@@ -48,6 +62,8 @@ interface PRContext {
   body: string;
   /** PR author's username */
   author: string;
+  /** Commit messages for ticket detection */
+  commits: string[];
 }
 
 /**
@@ -78,6 +94,9 @@ function getInputs(): Inputs {
     githubToken: core.getInput("github_token") || process.env.GITHUB_TOKEN || "",
     customTemplateEnabled: core.getInput("custom_template") !== "false",
     customTemplatePath: core.getInput("custom_template_path") || undefined,
+    ticketPattern: core.getInput("ticket_pattern") || undefined,
+    ticketUrlTemplate: core.getInput("ticket_url_template") || undefined,
+    autoUpdateTitle: core.getInput("auto_update_title") === "true",
   };
 }
 
@@ -87,13 +106,28 @@ function getInputs(): Inputs {
  * @returns PRContext with repository and PR details
  * @throws Error if not running on a pull request event
  */
-function getPRContext(): PRContext {
+async function getPRContext(octokit: OctokitClient): Promise<PRContext> {
   const { owner, repo } = github.context.repo;
   const pullRequest = github.context.payload.pull_request;
 
   if (!pullRequest) {
     throw new Error("This action must be run on a pull request event");
   }
+
+  // Fetch commit messages for ticket detection
+  const commits = await listPullRequestCommits(octokit, {
+    owner,
+    repo,
+    pullNumber: pullRequest.number,
+    baseSha: pullRequest.base?.sha || github.context.sha,
+    headSha: pullRequest.head?.sha || github.context.sha,
+    title: pullRequest.title || "",
+    body: pullRequest.body || "",
+    author: pullRequest.user?.login || "unknown",
+    commits: [], // Will be filled below
+  });
+
+  const commitMessages = commits.map((c) => c.message);
 
   return {
     owner,
@@ -104,6 +138,7 @@ function getPRContext(): PRContext {
     title: pullRequest.title || "",
     body: pullRequest.body || "",
     author: pullRequest.user?.login || "unknown",
+    commits: commitMessages,
   };
 }
 
@@ -145,13 +180,12 @@ async function run(): Promise<void> {
     core.info("Starting lazypr PR Summary generation...");
 
     const inputs = getInputs();
-    const prContext = getPRContext();
+    const octokit = github.getOctokit(inputs.githubToken);
+    const prContext = await getPRContext(octokit);
 
     core.info(
       `Processing PR #${String(prContext.pullNumber)} in ${prContext.owner}/${prContext.repo}`,
     );
-
-    const octokit = github.getOctokit(inputs.githubToken);
 
     await ensureLabelsExist(octokit, prContext.owner, prContext.repo);
 
@@ -226,6 +260,53 @@ async function run(): Promise<void> {
       `Processed ${truncatedFiles.length}/${parsedFiles.length} files (${tokenManager.getTotalTokens(truncatedFiles)} tokens)`,
     );
 
+    // Detect related tickets from PR title, body, and commits
+    core.info("Detecting related tickets...");
+    const tickets = detectTicketsFromSources(
+      {
+        title: prContext.title,
+        body: prContext.body,
+        commits: prContext.commits,
+      },
+      {
+        pattern: inputs.ticketPattern,
+        urlTemplate: inputs.ticketUrlTemplate,
+      },
+    );
+    const relatedTickets = formatTicketsMarkdown(tickets);
+    core.info(`Found ${tickets.length} related ticket(s)`);
+
+    // PR Title enhancement
+    let enhancedTitle = "";
+    let titleUpdated = false;
+
+    if (inputs.autoUpdateTitle) {
+      core.info("Analyzing PR title for vagueness...");
+      const titleEnhancer = new PRTitleEnhancer();
+      const titleResult = titleEnhancer.analyze(prContext.title, processedDiff, changedFiles);
+
+      if (titleResult.isVague && titleResult.suggestedTitle) {
+        core.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);
+        enhancedTitle = titleResult.suggestedTitle;
+        titleUpdated = true;
+
+        // Update the PR title
+        try {
+          await updatePRTitle(octokit, prContext, enhancedTitle);
+          core.info(`✓ PR title updated: "${prContext.title}" -> "${enhancedTitle}"`);
+        } catch (error) {
+          core.warning(`Failed to update PR title: ${error}`);
+        }
+      } else {
+        core.info(`Title is descriptive enough (score: ${titleResult.score}%)`);
+      }
+    }
+
+    // Add related tickets placeholder to template
+    if (templateContent) {
+      templateContent = templateContent.replace(/\{\{relatedTickets\}\}/g, relatedTickets);
+    }
+
     core.info("Generating PR summary with AI...");
 
     const result = await generatePRSummar(processedDiff, changedFiles, {
@@ -276,6 +357,8 @@ async function run(): Promise<void> {
     core.setOutput("has_ghost_commits", String(hasGhostCommits));
     core.setOutput("risk_level", result.riskLevel);
     core.setOutput("impact_score", String(result.impactScore));
+    core.setOutput("related_tickets", relatedTickets);
+    core.setOutput("enhanced_title", enhancedTitle);
 
     if (hasGhostCommits) {
       const ghostWarnings = ghostCommitResults

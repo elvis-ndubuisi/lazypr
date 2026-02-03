@@ -1,0 +1,40 @@
+name: lazypr Dev Test
+
+on:
+  push:
+    branches: [dev, feature/**]
+  workflow_dispatch:
+
+jobs:
+  test-lazypr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run lazypr (local)
+        id: lazypr
+        uses: ./
+        with:
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          provider: gemini
+          custom_template: true
+          custom_template_path: templates/ticket-integration.md
+          auto_update_title: true
+          ticket_pattern: "[A-Z]+-\\d+"
+          ticket_url_template: "https://github.com/${{ github.repository }}/issues/{{id}}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print lazypr Outputs
+        run: |
+          echo "=== lazypr Dev Test Results ==="
+          echo "Summary: ${{ steps.lazypr.outputs.summary }}"
+          echo "Related Tickets: ${{ steps.lazypr.outputs.related_tickets }}"
+          echo "Enhanced Title: ${{ steps.lazypr.outputs.enhanced_title }}"
+          echo "Risk Level: ${{ steps.lazypr.outputs.risk_level }}"
+          echo "Impact Score: ${{ steps.lazypr.outputs.impact_score }}"
+          echo "Has Ghost Commits: ${{ steps.lazypr.outputs.has_ghost_commits }}"

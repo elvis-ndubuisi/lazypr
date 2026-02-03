@@ -27,6 +27,18 @@ inputs:
     description: "Optional explicit path to a custom template file in the repo (e.g. .github/lazypr-template.md)"
     required: false
     default: ""
+  ticket_pattern:
+    description: "Custom regex pattern for detecting ticket IDs (e.g. [A-Z]+-\\d+ for JIRA style)"
+    required: false
+    default: ""
+  ticket_url_template:
+    description: "URL template for ticket links. Use {{id}} placeholder (e.g. https://jira.example.com/browse/{{id}})"
+    required: false
+    default: ""
+  auto_update_title:
+    description: "Automatically update vague PR titles (70% vagueness threshold). Only updates if enabled."
+    required: false
+    default: "false"
   github_token:
     description: "GitHub token for API access (automatically provided by GitHub Actions)"
     required: true
@@ -40,6 +52,10 @@ outputs:
     description: "Risk level of the PR changes (LOW, MEDIUM, or HIGH)"
   impact_score:
     description: "Impact score from 0-100"
+  related_tickets:
+    description: "Markdown-formatted list of detected related tickets (JIRA, GitHub issues, etc.)"
+  enhanced_title:
+    description: "Improved PR title if original was vague, empty if no change needed"
 
 runs:
   using: "node20"

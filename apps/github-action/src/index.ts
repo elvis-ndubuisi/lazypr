@@ -40,6 +40,8 @@ interface Inputs {
   ticketUrlTemplate?: string;
   /** Whether to auto-update vague PR titles */
   autoUpdateTitle: boolean;
+  /** Custom placeholders to substitute in templates */
+  customPlaceholders?: Record<string, string>;
 }
 
 /**
@@ -86,6 +88,23 @@ function getInputs(): Inputs {
 
   const model = modelInput && modelInput.trim().length > 0 ? modelInput.trim() : defaultModel;
 
+  // Parse custom placeholders
+  let customPlaceholders: Record<string, string> | undefined;
+  const customPlaceholdersInput = core.getInput("custom_placeholders");
+  if (customPlaceholdersInput && customPlaceholdersInput.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(customPlaceholdersInput);
+      // Validate that it's an object with string values
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        customPlaceholders = parsed as Record<string, string>;
+      } else {
+        core.warning("custom_placeholders must be a JSON object with string values");
+      }
+    } catch (error) {
+      core.warning(`Failed to parse custom_placeholders: ${error}`);
+    }
+  }
+
   return {
     apiKey: core.getInput("api_key", { required: true }),
     model,
@@ -97,6 +116,7 @@ function getInputs(): Inputs {
     ticketPattern: core.getInput("ticket_pattern") || undefined,
     ticketUrlTemplate: core.getInput("ticket_url_template") || undefined,
     autoUpdateTitle: core.getInput("auto_update_title") === "true",
+    customPlaceholders,
   };
 }
 
@@ -278,7 +298,6 @@ async function run(): Promise<void> {
 
     // PR Title enhancement
     let enhancedTitle = "";
-    let titleUpdated = false;
 
     if (inputs.autoUpdateTitle) {
       core.info("Analyzing PR title for vagueness...");
@@ -288,7 +307,6 @@ async function run(): Promise<void> {
       if (titleResult.isVague && titleResult.suggestedTitle) {
         core.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);
         enhancedTitle = titleResult.suggestedTitle;
-        titleUpdated = true;
 
         // Update the PR title
         try {
@@ -305,6 +323,26 @@ async function run(): Promise<void> {
     // Add related tickets placeholder to template
     if (templateContent) {
       templateContent = templateContent.replace(/\{\{relatedTickets\}\}/g, relatedTickets);
+    }
+
+    // Substitute custom placeholders
+    let customPlaceholdersApplied = 0;
+    if (templateContent && inputs.customPlaceholders) {
+      core.info("Substituting custom placeholders...");
+      for (const [placeholder, value] of Object.entries(inputs.customPlaceholders)) {
+        // Validate placeholder format (must be {{name}})
+        if (/^\{\{[a-zA-Z0-9_]+\}\}$/.test(placeholder)) {
+          const regex = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+          if (templateContent.includes(placeholder)) {
+            templateContent = templateContent.replace(regex, String(value));
+            customPlaceholdersApplied++;
+            core.info(`Substituted ${placeholder} -> ${value}`);
+          }
+        } else {
+          core.warning(`Invalid placeholder format: ${placeholder}. Must match {{name}} pattern.`);
+        }
+      }
+      core.info(`Applied ${customPlaceholdersApplied} custom placeholder(s)`);
     }
 
     core.info("Generating PR summary with AI...");
@@ -359,6 +397,7 @@ async function run(): Promise<void> {
     core.setOutput("impact_score", String(result.impactScore));
     core.setOutput("related_tickets", relatedTickets);
     core.setOutput("enhanced_title", enhancedTitle);
+    core.setOutput("custom_placeholders_applied", String(customPlaceholdersApplied));
 
     if (hasGhostCommits) {
       const ghostWarnings = ghostCommitResults

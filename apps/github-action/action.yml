@@ -39,6 +39,10 @@ inputs:
     description: "Automatically update vague PR titles (70% vagueness threshold). Only updates if enabled."
     required: false
     default: "false"
+  custom_placeholders:
+    description: "JSON object of custom placeholders to substitute in templates (e.g. {\"{{qaNotes}}\": \"Tested on staging\"})"
+    required: false
+    default: "{}"
   github_token:
     description: "GitHub token for API access (automatically provided by GitHub Actions)"
     required: true
@@ -56,6 +60,8 @@ outputs:
     description: "Markdown-formatted list of detected related tickets (JIRA, GitHub issues, etc.)"
   enhanced_title:
     description: "Improved PR title if original was vague, empty if no change needed"
+  custom_placeholders_applied:
+    description: "Number of custom placeholders that were substituted in the template"
 
 runs:
   using: "node20"

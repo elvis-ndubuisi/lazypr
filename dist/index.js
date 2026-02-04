@@ -77878,6 +77878,20 @@ function getInputs() {
     defaultModel = "claude-sonnet-4-20250514";
   }
   const model = modelInput && modelInput.trim().length > 0 ? modelInput.trim() : defaultModel;
+  let customPlaceholders;
+  const customPlaceholdersInput = core5.getInput("custom_placeholders");
+  if (customPlaceholdersInput && customPlaceholdersInput.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(customPlaceholdersInput);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        customPlaceholders = parsed;
+      } else {
+        core5.warning("custom_placeholders must be a JSON object with string values");
+      }
+    } catch (error41) {
+      core5.warning(`Failed to parse custom_placeholders: ${error41}`);
+    }
+  }
   return {
     apiKey: core5.getInput("api_key", { required: true }),
     model,
@@ -77888,7 +77902,8 @@ function getInputs() {
     customTemplatePath: core5.getInput("custom_template_path") || undefined,
     ticketPattern: core5.getInput("ticket_pattern") || undefined,
     ticketUrlTemplate: core5.getInput("ticket_url_template") || undefined,
-    autoUpdateTitle: core5.getInput("auto_update_title") === "true"
+    autoUpdateTitle: core5.getInput("auto_update_title") === "true",
+    customPlaceholders
   };
 }
 async function getPRContext(octokit) {
@@ -78003,7 +78018,6 @@ async function run() {
     const relatedTickets = formatTicketsMarkdown(tickets);
     core5.info(`Found ${tickets.length} related ticket(s)`);
     let enhancedTitle = "";
-    let titleUpdated = false;
     if (inputs.autoUpdateTitle) {
       core5.info("Analyzing PR title for vagueness...");
       const titleEnhancer = new PRTitleEnhancer;
@@ -78011,7 +78025,6 @@ async function run() {
       if (titleResult.isVague && titleResult.suggestedTitle) {
         core5.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);
         enhancedTitle = titleResult.suggestedTitle;
-        titleUpdated = true;
         try {
           await updatePRTitle(octokit, prContext, enhancedTitle);
           core5.info(`✓ PR title updated: "${prContext.title}" -> "${enhancedTitle}"`);
@@ -78024,6 +78037,23 @@ async function run() {
     }
     if (templateContent) {
       templateContent = templateContent.replace(/\{\{relatedTickets\}\}/g, relatedTickets);
+    }
+    let customPlaceholdersApplied = 0;
+    if (templateContent && inputs.customPlaceholders) {
+      core5.info("Substituting custom placeholders...");
+      for (const [placeholder, value] of Object.entries(inputs.customPlaceholders)) {
+        if (/^\{\{[a-zA-Z0-9_]+\}\}$/.test(placeholder)) {
+          const regex2 = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+          if (templateContent.includes(placeholder)) {
+            templateContent = templateContent.replace(regex2, String(value));
+            customPlaceholdersApplied++;
+            core5.info(`Substituted ${placeholder} -> ${value}`);
+          }
+        } else {
+          core5.warning(`Invalid placeholder format: ${placeholder}. Must match {{name}} pattern.`);
+        }
+      }
+      core5.info(`Applied ${customPlaceholdersApplied} custom placeholder(s)`);
     }
     core5.info("Generating PR summary with AI...");
     const result = await generatePRSummar(processedDiff, changedFiles, {
@@ -78067,6 +78097,7 @@ async function run() {
     core5.setOutput("impact_score", String(result.impactScore));
     core5.setOutput("related_tickets", relatedTickets);
     core5.setOutput("enhanced_title", enhancedTitle);
+    core5.setOutput("custom_placeholders_applied", String(customPlaceholdersApplied));
     if (hasGhostCommits) {
       const ghostWarnings = ghostCommitResults.filter((r) => r.detected).map((r) => {
         const sha = r.sha.substring(0, 7);

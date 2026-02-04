@@ -1,8 +1,8 @@
 name: lazypr Dev Test
 
 on:
-  push:
-    branches: [dev, feature/**]
+  pull_request:
+    branches: [dev, main]
   workflow_dispatch:
 
 jobs:

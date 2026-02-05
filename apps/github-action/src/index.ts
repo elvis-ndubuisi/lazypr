@@ -7,8 +7,11 @@ import {
   GhostCommitDetector,
   PRTitleEnhancer,
   TokenManager,
+  assessPRSize,
   detectTicketsFromSources,
   formatTicketsMarkdown,
+  generateSizeBlockMessage,
+  generateSizeWarning,
   getGitDiff,
 } from "@lazypr/core";
 import { ensureLabelsExist, getRiskLabelEmoji, updateRiskLabels } from "./label-manager.js";
@@ -42,6 +45,10 @@ interface Inputs {
   autoUpdateTitle: boolean;
   /** Custom placeholders to substitute in templates */
   customPlaceholders?: Record<string, string>;
+  /** PR size warning threshold (lines) */
+  prSizeWarning: number;
+  /** PR size block threshold (lines) */
+  prSizeBlock: number;
 }
 
 /**
@@ -105,6 +112,10 @@ function getInputs(): Inputs {
     }
   }
 
+  // Parse PR size thresholds
+  const prSizeWarning = Number.parseInt(core.getInput("pr_size_warning") || "500", 10);
+  const prSizeBlock = Number.parseInt(core.getInput("pr_size_block") || "2000", 10);
+
   return {
     apiKey: core.getInput("api_key", { required: true }),
     model,
@@ -117,6 +128,8 @@ function getInputs(): Inputs {
     ticketUrlTemplate: core.getInput("ticket_url_template") || undefined,
     autoUpdateTitle: core.getInput("auto_update_title") === "true",
     customPlaceholders,
+    prSizeWarning,
+    prSizeBlock,
   };
 }
 
@@ -218,6 +231,32 @@ async function run(): Promise<void> {
       headSha: prContext.headSha,
       token: inputs.githubToken,
     });
+
+    // Assess PR size and trigger warnings/blocks if configured
+    let sizeWarningTriggered = false;
+    const sizeBlocked = false;
+    const sizeResult = assessPRSize(diff, inputs.prSizeWarning, inputs.prSizeBlock);
+
+    core.info(
+      `PR size: ${sizeResult.metrics.totalLines} lines (${sizeResult.metrics.additions} additions, ${sizeResult.metrics.deletions} deletions)`,
+    );
+
+    if (sizeResult.shouldBlock) {
+      const blockMessage = generateSizeBlockMessage(sizeResult.metrics, sizeResult.blockThreshold);
+      core.warning(blockMessage);
+      core.setOutput("summary", blockMessage);
+      core.setOutput("has_ghost_commits", "false");
+      core.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+      core.setOutput("pr_size_warning_triggered", "false");
+      core.setOutput("pr_size_blocked", "true");
+      return;
+    }
+
+    if (sizeResult.warningTriggered) {
+      const warningMessage = generateSizeWarning(sizeResult.metrics, sizeResult.warningThreshold);
+      core.warning(warningMessage);
+      sizeWarningTriggered = true;
+    }
 
     if (!diff || diff.trim().length === 0) {
       core.warning("No diff found for this PR");
@@ -325,6 +364,31 @@ async function run(): Promise<void> {
       templateContent = templateContent.replace(/\{\{relatedTickets\}\}/g, relatedTickets);
     }
 
+    // Substitute PR size placeholders
+    if (templateContent) {
+      templateContent = templateContent.replace(
+        /\{\{prSizeLines\}\}/g,
+        String(sizeResult.metrics.totalLines),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeFiles\}\}/g,
+        String(sizeResult.metrics.filesChanged),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeAdditions\}\}/g,
+        String(sizeResult.metrics.additions),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeDeletions\}\}/g,
+        String(sizeResult.metrics.deletions),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeMetrics\}\}/g,
+        JSON.stringify(sizeResult.metrics, null, 2),
+      );
+      core.info("PR size placeholders substituted");
+    }
+
     // Substitute custom placeholders
     let customPlaceholdersApplied = 0;
     if (templateContent && inputs.customPlaceholders) {
@@ -398,6 +462,9 @@ async function run(): Promise<void> {
     core.setOutput("related_tickets", relatedTickets);
     core.setOutput("enhanced_title", enhancedTitle);
     core.setOutput("custom_placeholders_applied", String(customPlaceholdersApplied));
+    core.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+    core.setOutput("pr_size_warning_triggered", String(sizeWarningTriggered));
+    core.setOutput("pr_size_blocked", String(sizeBlocked));
 
     if (hasGhostCommits) {
       const ghostWarnings = ghostCommitResults

@@ -474,3 +474,12 @@ export {
   type TicketMatch,
   type TicketDetectionOptions,
 } from "./ticket-detector.js";
+export {
+  calculatePRSize,
+  assessPRSize,
+  formatSizeMetricsMarkdown,
+  generateSizeWarning,
+  generateSizeBlockMessage,
+  type PRSizeMetrics,
+  type SizeAssessmentResult,
+} from "./pr-size.js";

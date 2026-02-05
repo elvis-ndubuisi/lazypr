@@ -75,6 +75,11 @@ export function sanitizeTemplate(template: string): string {
   sanitized = sanitized.replace(/\{\{highRiskFiles\}\}/g, "{{highRiskFiles}}");
   sanitized = sanitized.replace(/\{\{fileBreakdown\}\}/g, "{{fileBreakdown}}");
   sanitized = sanitized.replace(/\{\{relatedTickets\}\}/g, "{{relatedTickets}}");
+  sanitized = sanitized.replace(/\{\{prSizeLines\}\}/g, "{{prSizeLines}}");
+  sanitized = sanitized.replace(/\{\{prSizeFiles\}\}/g, "{{prSizeFiles}}");
+  sanitized = sanitized.replace(/\{\{prSizeAdditions\}\}/g, "{{prSizeAdditions}}");
+  sanitized = sanitized.replace(/\{\{prSizeDeletions\}\}/g, "{{prSizeDeletions}}");
+  sanitized = sanitized.replace(/\{\{prSizeMetrics\}\}/g, "{{prSizeMetrics}}");
 
   return sanitized;
 }
@@ -115,6 +120,11 @@ export function validateTemplate(template: string): TemplateValidationResult {
     "{{highRiskFiles}}",
     "{{fileBreakdown}}",
     "{{relatedTickets}}",
+    "{{prSizeLines}}",
+    "{{prSizeFiles}}",
+    "{{prSizeAdditions}}",
+    "{{prSizeDeletions}}",
+    "{{prSizeMetrics}}",
   ];
   for (const placeholder of optionalPlaceholders) {
     if (template.includes(placeholder)) {

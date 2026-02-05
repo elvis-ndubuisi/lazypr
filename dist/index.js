@@ -77337,6 +77337,93 @@ function generateGitHubIssueUrl(issueNumber, baseUrl) {
   }
   return `https://github.com/issues/${issueNumber}`;
 }
+// ../../packages/core/dist/pr-size.js
+function calculatePRSize(diff) {
+  const metrics = {
+    filesChanged: 0,
+    additions: 0,
+    deletions: 0,
+    totalLines: 0,
+    filesAdded: 0,
+    filesModified: 0,
+    filesDeleted: 0
+  };
+  if (!diff || diff.trim().length === 0) {
+    return metrics;
+  }
+  const lines = diff.split(`
+`);
+  let inHunk = false;
+  let currentFileAdded = false;
+  let currentFileDeleted = false;
+  let currentFileModified = false;
+  for (const line of lines) {
+    if (line.startsWith("diff --git")) {
+      if (metrics.filesChanged > 0) {
+        if (currentFileAdded)
+          metrics.filesAdded++;
+        else if (currentFileDeleted)
+          metrics.filesDeleted++;
+        else if (currentFileModified)
+          metrics.filesModified++;
+      }
+      metrics.filesChanged++;
+      inHunk = false;
+      currentFileAdded = false;
+      currentFileDeleted = false;
+      currentFileModified = false;
+    }
+    if (line.startsWith("new file mode")) {
+      currentFileAdded = true;
+    }
+    if (line.startsWith("deleted file mode")) {
+      currentFileDeleted = true;
+    }
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      if (!currentFileAdded && !currentFileDeleted) {
+        currentFileModified = true;
+      }
+    }
+    if (inHunk && line.length > 0) {
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        metrics.additions++;
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        metrics.deletions++;
+      }
+    }
+  }
+  if (currentFileAdded)
+    metrics.filesAdded++;
+  else if (currentFileDeleted)
+    metrics.filesDeleted++;
+  else if (currentFileModified)
+    metrics.filesModified++;
+  metrics.totalLines = metrics.additions + metrics.deletions;
+  return metrics;
+}
+function assessPRSize(diff, warningThreshold, blockThreshold) {
+  const metrics = calculatePRSize(diff);
+  const warningTriggered = warningThreshold > 0 && metrics.totalLines > warningThreshold;
+  const shouldBlock = blockThreshold > 0 && metrics.totalLines > blockThreshold;
+  return {
+    warningTriggered,
+    shouldBlock,
+    metrics,
+    warningThreshold,
+    blockThreshold
+  };
+}
+function formatSizeMetricsMarkdown(metrics) {
+  return `${metrics.totalLines} lines changed (${metrics.additions} additions, ${metrics.deletions} deletions) across ${metrics.filesChanged} files`;
+}
+function generateSizeWarning(metrics, threshold) {
+  const percentage = Math.round(metrics.totalLines / threshold * 100);
+  return `⚠️ PR Size Warning: ${formatSizeMetricsMarkdown(metrics)} (exceeds ${threshold} line threshold by ${percentage - 100}%)`;
+}
+function generateSizeBlockMessage(metrics, threshold) {
+  return `\uD83D\uDEAB PR too large: ${formatSizeMetricsMarkdown(metrics)}. Exceeds maximum ${threshold} lines. Consider splitting into smaller PRs.`;
+}
 
 // ../../packages/core/dist/index.js
 var PRMetadataSchema = exports_external.object({
@@ -77824,6 +77911,11 @@ function sanitizeTemplate(template) {
   sanitized = sanitized.replace(/\{\{highRiskFiles\}\}/g, "{{highRiskFiles}}");
   sanitized = sanitized.replace(/\{\{fileBreakdown\}\}/g, "{{fileBreakdown}}");
   sanitized = sanitized.replace(/\{\{relatedTickets\}\}/g, "{{relatedTickets}}");
+  sanitized = sanitized.replace(/\{\{prSizeLines\}\}/g, "{{prSizeLines}}");
+  sanitized = sanitized.replace(/\{\{prSizeFiles\}\}/g, "{{prSizeFiles}}");
+  sanitized = sanitized.replace(/\{\{prSizeAdditions\}\}/g, "{{prSizeAdditions}}");
+  sanitized = sanitized.replace(/\{\{prSizeDeletions\}\}/g, "{{prSizeDeletions}}");
+  sanitized = sanitized.replace(/\{\{prSizeMetrics\}\}/g, "{{prSizeMetrics}}");
   return sanitized;
 }
 function validateTemplate(template) {
@@ -77852,7 +77944,12 @@ function validateTemplate(template) {
     "{{riskScore}}",
     "{{highRiskFiles}}",
     "{{fileBreakdown}}",
-    "{{relatedTickets}}"
+    "{{relatedTickets}}",
+    "{{prSizeLines}}",
+    "{{prSizeFiles}}",
+    "{{prSizeAdditions}}",
+    "{{prSizeDeletions}}",
+    "{{prSizeMetrics}}"
   ];
   for (const placeholder of optionalPlaceholders) {
     if (template.includes(placeholder)) {
@@ -77892,6 +77989,8 @@ function getInputs() {
       core5.warning(`Failed to parse custom_placeholders: ${error41}`);
     }
   }
+  const prSizeWarning = Number.parseInt(core5.getInput("pr_size_warning") || "500", 10);
+  const prSizeBlock = Number.parseInt(core5.getInput("pr_size_block") || "2000", 10);
   return {
     apiKey: core5.getInput("api_key", { required: true }),
     model,
@@ -77903,7 +78002,9 @@ function getInputs() {
     ticketPattern: core5.getInput("ticket_pattern") || undefined,
     ticketUrlTemplate: core5.getInput("ticket_url_template") || undefined,
     autoUpdateTitle: core5.getInput("auto_update_title") === "true",
-    customPlaceholders
+    customPlaceholders,
+    prSizeWarning,
+    prSizeBlock
   };
 }
 async function getPRContext(octokit) {
@@ -77963,6 +78064,25 @@ async function run() {
       headSha: prContext.headSha,
       token: inputs.githubToken
     });
+    let sizeWarningTriggered = false;
+    const sizeBlocked = false;
+    const sizeResult = assessPRSize(diff, inputs.prSizeWarning, inputs.prSizeBlock);
+    core5.info(`PR size: ${sizeResult.metrics.totalLines} lines (${sizeResult.metrics.additions} additions, ${sizeResult.metrics.deletions} deletions)`);
+    if (sizeResult.shouldBlock) {
+      const blockMessage = generateSizeBlockMessage(sizeResult.metrics, sizeResult.blockThreshold);
+      core5.warning(blockMessage);
+      core5.setOutput("summary", blockMessage);
+      core5.setOutput("has_ghost_commits", "false");
+      core5.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+      core5.setOutput("pr_size_warning_triggered", "false");
+      core5.setOutput("pr_size_blocked", "true");
+      return;
+    }
+    if (sizeResult.warningTriggered) {
+      const warningMessage = generateSizeWarning(sizeResult.metrics, sizeResult.warningThreshold);
+      core5.warning(warningMessage);
+      sizeWarningTriggered = true;
+    }
     if (!diff || diff.trim().length === 0) {
       core5.warning("No diff found for this PR");
       core5.setOutput("summary", "No changes detected");
@@ -78038,6 +78158,14 @@ async function run() {
     if (templateContent) {
       templateContent = templateContent.replace(/\{\{relatedTickets\}\}/g, relatedTickets);
     }
+    if (templateContent) {
+      templateContent = templateContent.replace(/\{\{prSizeLines\}\}/g, String(sizeResult.metrics.totalLines));
+      templateContent = templateContent.replace(/\{\{prSizeFiles\}\}/g, String(sizeResult.metrics.filesChanged));
+      templateContent = templateContent.replace(/\{\{prSizeAdditions\}\}/g, String(sizeResult.metrics.additions));
+      templateContent = templateContent.replace(/\{\{prSizeDeletions\}\}/g, String(sizeResult.metrics.deletions));
+      templateContent = templateContent.replace(/\{\{prSizeMetrics\}\}/g, JSON.stringify(sizeResult.metrics, null, 2));
+      core5.info("PR size placeholders substituted");
+    }
     let customPlaceholdersApplied = 0;
     if (templateContent && inputs.customPlaceholders) {
       core5.info("Substituting custom placeholders...");
@@ -78098,6 +78226,9 @@ async function run() {
     core5.setOutput("related_tickets", relatedTickets);
     core5.setOutput("enhanced_title", enhancedTitle);
     core5.setOutput("custom_placeholders_applied", String(customPlaceholdersApplied));
+    core5.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+    core5.setOutput("pr_size_warning_triggered", String(sizeWarningTriggered));
+    core5.setOutput("pr_size_blocked", String(sizeBlocked));
     if (hasGhostCommits) {
       const ghostWarnings = ghostCommitResults.filter((r) => r.detected).map((r) => {
         const sha = r.sha.substring(0, 7);

@@ -1,4 +1,9 @@
-# 🚀 LazyPR
+
+![LazyPR Banner](assets/lazypr-banner.png)
+
+<a href="https://github.com/elvis-ndubuisi/lazypr">
+  <img src="https://img.shields.io/badge/Using-LazyPR-blueviolet?style=flat-square&logo=github" height="20">
+</a>
 
 **lazypr** is an AI-powered GitHub Action that rescues your repository from "lazy" documentation and "updated auth" as a PR title. It automatically generates high-context Pull Request summaries, risk assessments, and change logs directly from your code diffs.
 
@@ -12,6 +17,20 @@ Most AI summarizers just look at commit messages. **lazypr** looks at the code.
 - **Developer-First:** Built as a lightning-fast Bun monorepo, compiled for Node.js runtime.
 
 ---
+
+## 🌍 Trusted by Forward-Thinking Teams
+
+> **Is your project using LazyPR?** We'd love to feature you! To support the project and be added to this section, please [open a PR](https://github.com/elvis-ndubuisi/lazypr/compare) and include your project's icon/link.
+
+
+<a href="https://hopmembers.com">
+  <img src="https://www.google.com/s2/favicons?domain=hopmembers.com&sz=128" height="40" width="40" alt="hopmembers" style="vertical-align: middle; border-radius: 50%;">
+</a>
+<a href="https://usekonsent.netlify.app">
+  <img src="https://www.google.com/s2/favicons?domain=usekonsent.netlify.app&sz=128" height="40" width="40" alt="useKonsent" style="vertical-align: middle; border-radius: 50%;">
+</a>
+
+
 
 ## 🏗️ Project Structure
 

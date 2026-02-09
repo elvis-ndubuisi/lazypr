@@ -2,10 +2,21 @@ import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { type RiskLevel, generatePRSummar } from "@lazypr/ai-engine";
 import { getTemplate } from "@lazypr/config-presets";
-import { DiffSanitizer, GhostCommitDetector, TokenManager, getGitDiff } from "@lazypr/core";
+import {
+  DiffSanitizer,
+  GhostCommitDetector,
+  PRTitleEnhancer,
+  TokenManager,
+  assessPRSize,
+  detectTicketsFromSources,
+  formatTicketsMarkdown,
+  generateSizeBlockMessage,
+  generateSizeWarning,
+  getGitDiff,
+} from "@lazypr/core";
 import { ensureLabelsExist, getRiskLabelEmoji, updateRiskLabels } from "./label-manager.js";
 import type { OctokitClient } from "./octokit-types.js";
-import { formatChecklistForMarkdown, updatePRDescription } from "./pr-updater.js";
+import { formatChecklistForMarkdown, updatePRDescription, updatePRTitle } from "./pr-updater.js";
 import { loadCustomTemplate, sanitizeTemplate, validateTemplate } from "./template-loader.js";
 
 /**
@@ -26,6 +37,18 @@ interface Inputs {
   customTemplateEnabled: boolean;
   /** Optional explicit repository path for the custom template */
   customTemplatePath?: string;
+  /** Custom regex pattern for ticket ID detection */
+  ticketPattern?: string;
+  /** URL template for ticket links (use {{id}} placeholder) */
+  ticketUrlTemplate?: string;
+  /** Whether to auto-update vague PR titles */
+  autoUpdateTitle: boolean;
+  /** Custom placeholders to substitute in templates */
+  customPlaceholders?: Record<string, string>;
+  /** PR size warning threshold (lines) */
+  prSizeWarning: number;
+  /** PR size block threshold (lines) */
+  prSizeBlock: number;
 }
 
 /**
@@ -48,6 +71,8 @@ interface PRContext {
   body: string;
   /** PR author's username */
   author: string;
+  /** Commit messages for ticket detection */
+  commits: string[];
 }
 
 /**
@@ -70,6 +95,27 @@ function getInputs(): Inputs {
 
   const model = modelInput && modelInput.trim().length > 0 ? modelInput.trim() : defaultModel;
 
+  // Parse custom placeholders
+  let customPlaceholders: Record<string, string> | undefined;
+  const customPlaceholdersInput = core.getInput("custom_placeholders");
+  if (customPlaceholdersInput && customPlaceholdersInput.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(customPlaceholdersInput);
+      // Validate that it's an object with string values
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        customPlaceholders = parsed as Record<string, string>;
+      } else {
+        core.warning("custom_placeholders must be a JSON object with string values");
+      }
+    } catch (error) {
+      core.warning(`Failed to parse custom_placeholders: ${error}`);
+    }
+  }
+
+  // Parse PR size thresholds
+  const prSizeWarning = Number.parseInt(core.getInput("pr_size_warning") || "500", 10);
+  const prSizeBlock = Number.parseInt(core.getInput("pr_size_block") || "2000", 10);
+
   return {
     apiKey: core.getInput("api_key", { required: true }),
     model,
@@ -78,6 +124,12 @@ function getInputs(): Inputs {
     githubToken: core.getInput("github_token") || process.env.GITHUB_TOKEN || "",
     customTemplateEnabled: core.getInput("custom_template") !== "false",
     customTemplatePath: core.getInput("custom_template_path") || undefined,
+    ticketPattern: core.getInput("ticket_pattern") || undefined,
+    ticketUrlTemplate: core.getInput("ticket_url_template") || undefined,
+    autoUpdateTitle: core.getInput("auto_update_title") === "true",
+    customPlaceholders,
+    prSizeWarning,
+    prSizeBlock,
   };
 }
 
@@ -87,13 +139,28 @@ function getInputs(): Inputs {
  * @returns PRContext with repository and PR details
  * @throws Error if not running on a pull request event
  */
-function getPRContext(): PRContext {
+async function getPRContext(octokit: OctokitClient): Promise<PRContext> {
   const { owner, repo } = github.context.repo;
   const pullRequest = github.context.payload.pull_request;
 
   if (!pullRequest) {
     throw new Error("This action must be run on a pull request event");
   }
+
+  // Fetch commit messages for ticket detection
+  const commits = await listPullRequestCommits(octokit, {
+    owner,
+    repo,
+    pullNumber: pullRequest.number,
+    baseSha: pullRequest.base?.sha || github.context.sha,
+    headSha: pullRequest.head?.sha || github.context.sha,
+    title: pullRequest.title || "",
+    body: pullRequest.body || "",
+    author: pullRequest.user?.login || "unknown",
+    commits: [], // Will be filled below
+  });
+
+  const commitMessages = commits.map((c) => c.message);
 
   return {
     owner,
@@ -104,6 +171,7 @@ function getPRContext(): PRContext {
     title: pullRequest.title || "",
     body: pullRequest.body || "",
     author: pullRequest.user?.login || "unknown",
+    commits: commitMessages,
   };
 }
 
@@ -145,13 +213,12 @@ async function run(): Promise<void> {
     core.info("Starting lazypr PR Summary generation...");
 
     const inputs = getInputs();
-    const prContext = getPRContext();
+    const octokit = github.getOctokit(inputs.githubToken);
+    const prContext = await getPRContext(octokit);
 
     core.info(
       `Processing PR #${String(prContext.pullNumber)} in ${prContext.owner}/${prContext.repo}`,
     );
-
-    const octokit = github.getOctokit(inputs.githubToken);
 
     await ensureLabelsExist(octokit, prContext.owner, prContext.repo);
 
@@ -164,6 +231,32 @@ async function run(): Promise<void> {
       headSha: prContext.headSha,
       token: inputs.githubToken,
     });
+
+    // Assess PR size and trigger warnings/blocks if configured
+    let sizeWarningTriggered = false;
+    const sizeBlocked = false;
+    const sizeResult = assessPRSize(diff, inputs.prSizeWarning, inputs.prSizeBlock);
+
+    core.info(
+      `PR size: ${sizeResult.metrics.totalLines} lines (${sizeResult.metrics.additions} additions, ${sizeResult.metrics.deletions} deletions)`,
+    );
+
+    if (sizeResult.shouldBlock) {
+      const blockMessage = generateSizeBlockMessage(sizeResult.metrics, sizeResult.blockThreshold);
+      core.warning(blockMessage);
+      core.setOutput("summary", blockMessage);
+      core.setOutput("has_ghost_commits", "false");
+      core.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+      core.setOutput("pr_size_warning_triggered", "false");
+      core.setOutput("pr_size_blocked", "true");
+      return;
+    }
+
+    if (sizeResult.warningTriggered) {
+      const warningMessage = generateSizeWarning(sizeResult.metrics, sizeResult.warningThreshold);
+      core.warning(warningMessage);
+      sizeWarningTriggered = true;
+    }
 
     if (!diff || diff.trim().length === 0) {
       core.warning("No diff found for this PR");
@@ -226,6 +319,96 @@ async function run(): Promise<void> {
       `Processed ${truncatedFiles.length}/${parsedFiles.length} files (${tokenManager.getTotalTokens(truncatedFiles)} tokens)`,
     );
 
+    // Detect related tickets from PR title, body, and commits
+    core.info("Detecting related tickets...");
+    const tickets = detectTicketsFromSources(
+      {
+        title: prContext.title,
+        body: prContext.body,
+        commits: prContext.commits,
+      },
+      {
+        pattern: inputs.ticketPattern,
+        urlTemplate: inputs.ticketUrlTemplate,
+      },
+    );
+    const relatedTickets = formatTicketsMarkdown(tickets);
+    core.info(`Found ${tickets.length} related ticket(s)`);
+
+    // PR Title enhancement
+    let enhancedTitle = "";
+
+    if (inputs.autoUpdateTitle) {
+      core.info("Analyzing PR title for vagueness...");
+      const titleEnhancer = new PRTitleEnhancer();
+      const titleResult = titleEnhancer.analyze(prContext.title, processedDiff, changedFiles);
+
+      if (titleResult.isVague && titleResult.suggestedTitle) {
+        core.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);
+        enhancedTitle = titleResult.suggestedTitle;
+
+        // Update the PR title
+        try {
+          await updatePRTitle(octokit, prContext, enhancedTitle);
+          core.info(`✓ PR title updated: "${prContext.title}" -> "${enhancedTitle}"`);
+        } catch (error) {
+          core.warning(`Failed to update PR title: ${error}`);
+        }
+      } else {
+        core.info(`Title is descriptive enough (score: ${titleResult.score}%)`);
+      }
+    }
+
+    // Add related tickets placeholder to template
+    if (templateContent) {
+      templateContent = templateContent.replace(/\{\{relatedTickets\}\}/g, relatedTickets);
+    }
+
+    // Substitute PR size placeholders
+    if (templateContent) {
+      templateContent = templateContent.replace(
+        /\{\{prSizeLines\}\}/g,
+        String(sizeResult.metrics.totalLines),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeFiles\}\}/g,
+        String(sizeResult.metrics.filesChanged),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeAdditions\}\}/g,
+        String(sizeResult.metrics.additions),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeDeletions\}\}/g,
+        String(sizeResult.metrics.deletions),
+      );
+      templateContent = templateContent.replace(
+        /\{\{prSizeMetrics\}\}/g,
+        JSON.stringify(sizeResult.metrics, null, 2),
+      );
+      core.info("PR size placeholders substituted");
+    }
+
+    // Substitute custom placeholders
+    let customPlaceholdersApplied = 0;
+    if (templateContent && inputs.customPlaceholders) {
+      core.info("Substituting custom placeholders...");
+      for (const [placeholder, value] of Object.entries(inputs.customPlaceholders)) {
+        // Validate placeholder format (must be {{name}})
+        if (/^\{\{[a-zA-Z0-9_]+\}\}$/.test(placeholder)) {
+          const regex = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+          if (templateContent.includes(placeholder)) {
+            templateContent = templateContent.replace(regex, String(value));
+            customPlaceholdersApplied++;
+            core.info(`Substituted ${placeholder} -> ${value}`);
+          }
+        } else {
+          core.warning(`Invalid placeholder format: ${placeholder}. Must match {{name}} pattern.`);
+        }
+      }
+      core.info(`Applied ${customPlaceholdersApplied} custom placeholder(s)`);
+    }
+
     core.info("Generating PR summary with AI...");
 
     const result = await generatePRSummar(processedDiff, changedFiles, {
@@ -276,6 +459,12 @@ async function run(): Promise<void> {
     core.setOutput("has_ghost_commits", String(hasGhostCommits));
     core.setOutput("risk_level", result.riskLevel);
     core.setOutput("impact_score", String(result.impactScore));
+    core.setOutput("related_tickets", relatedTickets);
+    core.setOutput("enhanced_title", enhancedTitle);
+    core.setOutput("custom_placeholders_applied", String(customPlaceholdersApplied));
+    core.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+    core.setOutput("pr_size_warning_triggered", String(sizeWarningTriggered));
+    core.setOutput("pr_size_blocked", String(sizeBlocked));
 
     if (hasGhostCommits) {
       const ghostWarnings = ghostCommitResults

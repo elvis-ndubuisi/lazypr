@@ -77070,6 +77070,360 @@ class TokenManager {
     return this.getTotalTokens(files) > maxTokens;
   }
 }
+// ../../packages/core/dist/pr-title-enhancer.js
+var DEFAULT_VAGUE_PATTERNS = [
+  {
+    pattern: /^(update|fix|wip|changes|modified|refactor|clean)$/i,
+    score: 30,
+    description: "Generic action verb without context"
+  },
+  {
+    pattern: /^(auth|config|stuff|things|main|test|api|ui|css|bug)$/i,
+    score: 35,
+    description: "Single generic word without details"
+  },
+  { pattern: /^.{1,15}$/, score: 30, description: "Very short title (< 15 chars)" },
+  { pattern: /^\s*$/g, score: 100, description: "Empty or whitespace-only title" },
+  {
+    pattern: /^(?:.*\s)?(?:fix|update|change|add|remove)\s*(?:it|this|that|stuff|things|code)$/i,
+    score: 40,
+    description: "Generic action + generic noun"
+  },
+  {
+    pattern: /\b(tmp|temp|temporary|wip|draft)\b/i,
+    score: 25,
+    description: "Contains temporary/WIP indicators"
+  }
+];
+
+class PRTitleEnhancer {
+  patterns;
+  constructor(customPatterns) {
+    this.patterns = customPatterns ?? DEFAULT_VAGUE_PATTERNS;
+  }
+  analyze(title, diff, files) {
+    const { score, reasons } = this.calculateVaguenessScore(title);
+    const threshold = 70;
+    if (score < threshold) {
+      return {
+        isVague: false,
+        score,
+        reason: reasons.join("; ") || "Title is descriptive enough"
+      };
+    }
+    const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+    return {
+      isVague: true,
+      score,
+      reason: reasons.join("; "),
+      suggestedTitle
+    };
+  }
+  calculateVaguenessScore(title) {
+    let score = 0;
+    const reasons = [];
+    const matchedPatterns = new Set;
+    for (const { pattern, score: points, description } of this.patterns) {
+      if (pattern.test(title) && !matchedPatterns.has(description)) {
+        score += points;
+        reasons.push(description);
+        matchedPatterns.add(description);
+      }
+    }
+    if (!/[A-Z]+-\d+|#\d+/.test(title)) {
+      score += 15;
+      reasons.push("No ticket reference (JIRA/GitHub issue)");
+    }
+    const genericWords = (title.match(/\b(fix|update|change|add|remove|implement|create|delete|modify)\b/gi) ?? []).length;
+    if (genericWords > 1) {
+      score += 10;
+      reasons.push("Multiple generic action words");
+    }
+    return { score: Math.min(score, 100), reasons };
+  }
+  generateImprovedTitle(originalTitle, diff, files) {
+    const fileContexts = this.extractFileContexts(files);
+    const keyChanges = this.extractKeyChanges(diff);
+    const action = this.inferAction(originalTitle, keyChanges);
+    const components = [action];
+    if (fileContexts.length > 0) {
+      components.push(fileContexts.join(" "));
+    }
+    if (keyChanges.length > 0 && keyChanges[0]) {
+      components.push(keyChanges[0]);
+    }
+    let improved = components.join(" ").replace(/\s+/g, " ").trim();
+    improved = improved.charAt(0).toUpperCase() + improved.slice(1);
+    if (improved.length > 80) {
+      improved = `${improved.substring(0, 77)}...`;
+    }
+    return improved || this.fallbackTitle(originalTitle, files);
+  }
+  extractFileContexts(files) {
+    const contexts = new Set;
+    for (const file2 of files.slice(0, 5)) {
+      const parts = file2.split("/");
+      const skipDirs = new Set(["src", "lib", "dist", "build", "public", "assets"]);
+      for (const part of parts) {
+        if (part && !skipDirs.has(part) && !part.includes(".") && part.length > 2) {
+          contexts.add(part);
+        }
+      }
+      const filename = parts[parts.length - 1];
+      if (filename) {
+        const nameWithoutExt = filename.split(".")[0];
+        if (nameWithoutExt && nameWithoutExt.length > 2 && !skipDirs.has(nameWithoutExt)) {
+          contexts.add(nameWithoutExt);
+        }
+      }
+    }
+    return Array.from(contexts).slice(0, 3);
+  }
+  extractKeyChanges(diff) {
+    const changes = [];
+    const functionMatches = diff.match(/^[+].*\b(function|const|class|export\s+(?:default\s+)?(?:function|class|const))\s+(\w+)/gm);
+    if (functionMatches) {
+      for (const match of functionMatches.slice(0, 2)) {
+        const name = match.match(/\b\w+\s*[=\(]/g)?.pop()?.replace(/[=\(]/, "");
+        if (name && name.length > 2) {
+          changes.push(name);
+        }
+      }
+    }
+    const addedLines = diff.match(/^[+].{10,}/gm) ?? [];
+    if (addedLines.length > 5) {
+      changes.push("multiple components");
+    }
+    return changes;
+  }
+  inferAction(originalTitle, keyChanges) {
+    const actions = [
+      { words: ["fix", "bug", "repair", "correct", "resolve"], action: "Fix" },
+      { words: ["add", "create", "implement", "introduce", "new"], action: "Add" },
+      { words: ["update", "upgrade", "change", "modify", "refactor"], action: "Update" },
+      { words: ["remove", "delete", "clean", "drop", "eliminate"], action: "Remove" },
+      { words: ["test", "spec", "coverage"], action: "Test" },
+      { words: ["doc", "readme", "comment", "guide"], action: "Document" }
+    ];
+    const titleLower = originalTitle.toLowerCase();
+    for (const { words, action } of actions) {
+      if (words.some((w) => titleLower.includes(w))) {
+        return action;
+      }
+    }
+    if (keyChanges.length > 0) {
+      return "Update";
+    }
+    return "Modify";
+  }
+  fallbackTitle(originalTitle, files) {
+    if (files.length === 1) {
+      return `Update ${files[0]?.split("/").pop()?.replace(/\.\w+$/, "") || "files"}`;
+    }
+    if (files.length > 1) {
+      const dir = files[0]?.split("/").slice(0, -1).pop();
+      return `Update ${files.length} files in ${dir || "repository"}`;
+    }
+    return `Update: ${originalTitle}`;
+  }
+}
+// ../../packages/core/dist/ticket-detector.js
+var DEFAULT_PATTERNS = {
+  jira: /\b([A-Z][A-Z0-9]+-\d+)\b/g,
+  github: /#(\d{1,6})/g,
+  linear: /\b([A-Z][A-Z0-9]+-\d+)\b/g
+};
+function detectTickets(text, options = {}) {
+  const tickets = [];
+  const seen = new Set;
+  if (options.pattern && options.pattern.trim().length > 0) {
+    const customRegex = new RegExp(options.pattern.trim(), "g");
+    const matches = text.matchAll(customRegex);
+    for (const match of matches) {
+      const id = match[1] || match[0];
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        tickets.push({
+          type: "custom",
+          id,
+          url: generateTicketUrl(id, options.urlTemplate ?? undefined)
+        });
+      }
+    }
+    return tickets;
+  }
+  const jiraMatches = text.matchAll(DEFAULT_PATTERNS.jira);
+  for (const match of jiraMatches) {
+    const id = match[1];
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      tickets.push({
+        type: "jira",
+        id,
+        url: generateTicketUrl(id, options.urlTemplate || "https://jira.example.com/browse/{{id}}")
+      });
+    }
+  }
+  const githubMatches = text.matchAll(DEFAULT_PATTERNS.github);
+  for (const match of githubMatches) {
+    const id = match[1];
+    if (id) {
+      const fullId = `#${id}`;
+      if (!seen.has(fullId)) {
+        seen.add(fullId);
+        tickets.push({
+          type: "github",
+          id: fullId,
+          url: generateGitHubIssueUrl(id, options.githubBaseUrl)
+        });
+      }
+    }
+  }
+  return tickets;
+}
+function detectTicketsFromSources(sources, options = {}) {
+  const allTickets = [];
+  const seen = new Set;
+  if (sources.title) {
+    const titleTickets = detectTickets(sources.title, options);
+    for (const ticket of titleTickets) {
+      if (!seen.has(ticket.id)) {
+        seen.add(ticket.id);
+        allTickets.push(ticket);
+      }
+    }
+  }
+  if (sources.body) {
+    const bodyTickets = detectTickets(sources.body, options);
+    for (const ticket of bodyTickets) {
+      if (!seen.has(ticket.id)) {
+        seen.add(ticket.id);
+        allTickets.push(ticket);
+      }
+    }
+  }
+  if (sources.commits) {
+    for (const commit of sources.commits) {
+      const commitTickets = detectTickets(commit, options);
+      for (const ticket of commitTickets) {
+        if (!seen.has(ticket.id)) {
+          seen.add(ticket.id);
+          allTickets.push(ticket);
+        }
+      }
+    }
+  }
+  return allTickets;
+}
+function formatTicketsMarkdown(tickets) {
+  if (tickets.length === 0) {
+    return "No related tickets found.";
+  }
+  return tickets.map((ticket) => {
+    const typeLabel = ticket.type.charAt(0).toUpperCase() + ticket.type.slice(1);
+    return `- [${ticket.id}](${ticket.url}) (${typeLabel})`;
+  }).join(`
+`);
+}
+function generateTicketUrl(id, template) {
+  if (!template) {
+    return "#";
+  }
+  return template.replace(/\{\{id\}\}/g, id);
+}
+function generateGitHubIssueUrl(issueNumber, baseUrl) {
+  if (baseUrl) {
+    return `${baseUrl}/issues/${issueNumber}`;
+  }
+  return `https://github.com/issues/${issueNumber}`;
+}
+// ../../packages/core/dist/pr-size.js
+function calculatePRSize(diff) {
+  const metrics = {
+    filesChanged: 0,
+    additions: 0,
+    deletions: 0,
+    totalLines: 0,
+    filesAdded: 0,
+    filesModified: 0,
+    filesDeleted: 0
+  };
+  if (!diff || diff.trim().length === 0) {
+    return metrics;
+  }
+  const lines = diff.split(`
+`);
+  let inHunk = false;
+  let currentFileAdded = false;
+  let currentFileDeleted = false;
+  let currentFileModified = false;
+  for (const line of lines) {
+    if (line.startsWith("diff --git")) {
+      if (metrics.filesChanged > 0) {
+        if (currentFileAdded)
+          metrics.filesAdded++;
+        else if (currentFileDeleted)
+          metrics.filesDeleted++;
+        else if (currentFileModified)
+          metrics.filesModified++;
+      }
+      metrics.filesChanged++;
+      inHunk = false;
+      currentFileAdded = false;
+      currentFileDeleted = false;
+      currentFileModified = false;
+    }
+    if (line.startsWith("new file mode")) {
+      currentFileAdded = true;
+    }
+    if (line.startsWith("deleted file mode")) {
+      currentFileDeleted = true;
+    }
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      if (!currentFileAdded && !currentFileDeleted) {
+        currentFileModified = true;
+      }
+    }
+    if (inHunk && line.length > 0) {
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        metrics.additions++;
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        metrics.deletions++;
+      }
+    }
+  }
+  if (currentFileAdded)
+    metrics.filesAdded++;
+  else if (currentFileDeleted)
+    metrics.filesDeleted++;
+  else if (currentFileModified)
+    metrics.filesModified++;
+  metrics.totalLines = metrics.additions + metrics.deletions;
+  return metrics;
+}
+function assessPRSize(diff, warningThreshold, blockThreshold) {
+  const metrics = calculatePRSize(diff);
+  const warningTriggered = warningThreshold > 0 && metrics.totalLines > warningThreshold;
+  const shouldBlock = blockThreshold > 0 && metrics.totalLines > blockThreshold;
+  return {
+    warningTriggered,
+    shouldBlock,
+    metrics,
+    warningThreshold,
+    blockThreshold
+  };
+}
+function formatSizeMetricsMarkdown(metrics) {
+  return `${metrics.totalLines} lines changed (${metrics.additions} additions, ${metrics.deletions} deletions) across ${metrics.filesChanged} files`;
+}
+function generateSizeWarning(metrics, threshold) {
+  const percentage = Math.round(metrics.totalLines / threshold * 100);
+  return `⚠️ PR Size Warning: ${formatSizeMetricsMarkdown(metrics)} (exceeds ${threshold} line threshold by ${percentage - 100}%)`;
+}
+function generateSizeBlockMessage(metrics, threshold) {
+  return `\uD83D\uDEAB PR too large: ${formatSizeMetricsMarkdown(metrics)}. Exceeds maximum ${threshold} lines. Consider splitting into smaller PRs.`;
+}
 
 // ../../packages/core/dist/index.js
 var PRMetadataSchema = exports_external.object({
@@ -77490,6 +77844,20 @@ function formatGhostCommitsForMarkdown(ghostCommits) {
   return lines.join(`
 `);
 }
+async function updatePRTitle(octokit, prContext, newTitle) {
+  const { owner, repo, pullNumber } = prContext;
+  try {
+    await octokit.rest.pulls.update({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      title: newTitle
+    });
+  } catch (error41) {
+    core3.warning(`Failed to update PR title: ${error41}`);
+    throw error41;
+  }
+}
 
 // src/template-loader.ts
 var core4 = __toESM(require_core(), 1);
@@ -77542,6 +77910,12 @@ function sanitizeTemplate(template) {
   sanitized = sanitized.replace(/\{\{riskScore\}\}/g, "{{riskScore}}");
   sanitized = sanitized.replace(/\{\{highRiskFiles\}\}/g, "{{highRiskFiles}}");
   sanitized = sanitized.replace(/\{\{fileBreakdown\}\}/g, "{{fileBreakdown}}");
+  sanitized = sanitized.replace(/\{\{relatedTickets\}\}/g, "{{relatedTickets}}");
+  sanitized = sanitized.replace(/\{\{prSizeLines\}\}/g, "{{prSizeLines}}");
+  sanitized = sanitized.replace(/\{\{prSizeFiles\}\}/g, "{{prSizeFiles}}");
+  sanitized = sanitized.replace(/\{\{prSizeAdditions\}\}/g, "{{prSizeAdditions}}");
+  sanitized = sanitized.replace(/\{\{prSizeDeletions\}\}/g, "{{prSizeDeletions}}");
+  sanitized = sanitized.replace(/\{\{prSizeMetrics\}\}/g, "{{prSizeMetrics}}");
   return sanitized;
 }
 function validateTemplate(template) {
@@ -77569,7 +77943,13 @@ function validateTemplate(template) {
     "{{riskLevel}}",
     "{{riskScore}}",
     "{{highRiskFiles}}",
-    "{{fileBreakdown}}"
+    "{{fileBreakdown}}",
+    "{{relatedTickets}}",
+    "{{prSizeLines}}",
+    "{{prSizeFiles}}",
+    "{{prSizeAdditions}}",
+    "{{prSizeDeletions}}",
+    "{{prSizeMetrics}}"
   ];
   for (const placeholder of optionalPlaceholders) {
     if (template.includes(placeholder)) {
@@ -77595,6 +77975,22 @@ function getInputs() {
     defaultModel = "claude-sonnet-4-20250514";
   }
   const model = modelInput && modelInput.trim().length > 0 ? modelInput.trim() : defaultModel;
+  let customPlaceholders;
+  const customPlaceholdersInput = core5.getInput("custom_placeholders");
+  if (customPlaceholdersInput && customPlaceholdersInput.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(customPlaceholdersInput);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        customPlaceholders = parsed;
+      } else {
+        core5.warning("custom_placeholders must be a JSON object with string values");
+      }
+    } catch (error41) {
+      core5.warning(`Failed to parse custom_placeholders: ${error41}`);
+    }
+  }
+  const prSizeWarning = Number.parseInt(core5.getInput("pr_size_warning") || "500", 10);
+  const prSizeBlock = Number.parseInt(core5.getInput("pr_size_block") || "2000", 10);
   return {
     apiKey: core5.getInput("api_key", { required: true }),
     model,
@@ -77602,15 +77998,33 @@ function getInputs() {
     template: core5.getInput("template") || "default",
     githubToken: core5.getInput("github_token") || process.env.GITHUB_TOKEN || "",
     customTemplateEnabled: core5.getInput("custom_template") !== "false",
-    customTemplatePath: core5.getInput("custom_template_path") || undefined
+    customTemplatePath: core5.getInput("custom_template_path") || undefined,
+    ticketPattern: core5.getInput("ticket_pattern") || undefined,
+    ticketUrlTemplate: core5.getInput("ticket_url_template") || undefined,
+    autoUpdateTitle: core5.getInput("auto_update_title") === "true",
+    customPlaceholders,
+    prSizeWarning,
+    prSizeBlock
   };
 }
-function getPRContext() {
+async function getPRContext(octokit) {
   const { owner, repo } = github.context.repo;
   const pullRequest = github.context.payload.pull_request;
   if (!pullRequest) {
     throw new Error("This action must be run on a pull request event");
   }
+  const commits = await listPullRequestCommits(octokit, {
+    owner,
+    repo,
+    pullNumber: pullRequest.number,
+    baseSha: pullRequest.base?.sha || github.context.sha,
+    headSha: pullRequest.head?.sha || github.context.sha,
+    title: pullRequest.title || "",
+    body: pullRequest.body || "",
+    author: pullRequest.user?.login || "unknown",
+    commits: []
+  });
+  const commitMessages = commits.map((c) => c.message);
   return {
     owner,
     repo,
@@ -77619,7 +78033,8 @@ function getPRContext() {
     headSha: pullRequest.head?.sha || github.context.sha,
     title: pullRequest.title || "",
     body: pullRequest.body || "",
-    author: pullRequest.user?.login || "unknown"
+    author: pullRequest.user?.login || "unknown",
+    commits: commitMessages
   };
 }
 function getMaxTokensForProvider(provider) {
@@ -77637,9 +78052,9 @@ async function run() {
   try {
     core5.info("Starting lazypr PR Summary generation...");
     const inputs = getInputs();
-    const prContext = getPRContext();
-    core5.info(`Processing PR #${String(prContext.pullNumber)} in ${prContext.owner}/${prContext.repo}`);
     const octokit = github.getOctokit(inputs.githubToken);
+    const prContext = await getPRContext(octokit);
+    core5.info(`Processing PR #${String(prContext.pullNumber)} in ${prContext.owner}/${prContext.repo}`);
     await ensureLabelsExist(octokit, prContext.owner, prContext.repo);
     core5.info("Fetching PR diff...");
     const diff = await getGitDiff({
@@ -77649,6 +78064,25 @@ async function run() {
       headSha: prContext.headSha,
       token: inputs.githubToken
     });
+    let sizeWarningTriggered = false;
+    const sizeBlocked = false;
+    const sizeResult = assessPRSize(diff, inputs.prSizeWarning, inputs.prSizeBlock);
+    core5.info(`PR size: ${sizeResult.metrics.totalLines} lines (${sizeResult.metrics.additions} additions, ${sizeResult.metrics.deletions} deletions)`);
+    if (sizeResult.shouldBlock) {
+      const blockMessage = generateSizeBlockMessage(sizeResult.metrics, sizeResult.blockThreshold);
+      core5.warning(blockMessage);
+      core5.setOutput("summary", blockMessage);
+      core5.setOutput("has_ghost_commits", "false");
+      core5.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+      core5.setOutput("pr_size_warning_triggered", "false");
+      core5.setOutput("pr_size_blocked", "true");
+      return;
+    }
+    if (sizeResult.warningTriggered) {
+      const warningMessage = generateSizeWarning(sizeResult.metrics, sizeResult.warningThreshold);
+      core5.warning(warningMessage);
+      sizeWarningTriggered = true;
+    }
     if (!diff || diff.trim().length === 0) {
       core5.warning("No diff found for this PR");
       core5.setOutput("summary", "No changes detected");
@@ -77692,6 +78126,63 @@ async function run() {
     const processedDiff = sanitizer.reconstruct(truncatedFiles);
     const changedFiles = truncatedFiles.map((f) => f.newPath);
     core5.info(`Processed ${truncatedFiles.length}/${parsedFiles.length} files (${tokenManager.getTotalTokens(truncatedFiles)} tokens)`);
+    core5.info("Detecting related tickets...");
+    const tickets = detectTicketsFromSources({
+      title: prContext.title,
+      body: prContext.body,
+      commits: prContext.commits
+    }, {
+      pattern: inputs.ticketPattern,
+      urlTemplate: inputs.ticketUrlTemplate
+    });
+    const relatedTickets = formatTicketsMarkdown(tickets);
+    core5.info(`Found ${tickets.length} related ticket(s)`);
+    let enhancedTitle = "";
+    if (inputs.autoUpdateTitle) {
+      core5.info("Analyzing PR title for vagueness...");
+      const titleEnhancer = new PRTitleEnhancer;
+      const titleResult = titleEnhancer.analyze(prContext.title, processedDiff, changedFiles);
+      if (titleResult.isVague && titleResult.suggestedTitle) {
+        core5.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);
+        enhancedTitle = titleResult.suggestedTitle;
+        try {
+          await updatePRTitle(octokit, prContext, enhancedTitle);
+          core5.info(`✓ PR title updated: "${prContext.title}" -> "${enhancedTitle}"`);
+        } catch (error41) {
+          core5.warning(`Failed to update PR title: ${error41}`);
+        }
+      } else {
+        core5.info(`Title is descriptive enough (score: ${titleResult.score}%)`);
+      }
+    }
+    if (templateContent) {
+      templateContent = templateContent.replace(/\{\{relatedTickets\}\}/g, relatedTickets);
+    }
+    if (templateContent) {
+      templateContent = templateContent.replace(/\{\{prSizeLines\}\}/g, String(sizeResult.metrics.totalLines));
+      templateContent = templateContent.replace(/\{\{prSizeFiles\}\}/g, String(sizeResult.metrics.filesChanged));
+      templateContent = templateContent.replace(/\{\{prSizeAdditions\}\}/g, String(sizeResult.metrics.additions));
+      templateContent = templateContent.replace(/\{\{prSizeDeletions\}\}/g, String(sizeResult.metrics.deletions));
+      templateContent = templateContent.replace(/\{\{prSizeMetrics\}\}/g, JSON.stringify(sizeResult.metrics, null, 2));
+      core5.info("PR size placeholders substituted");
+    }
+    let customPlaceholdersApplied = 0;
+    if (templateContent && inputs.customPlaceholders) {
+      core5.info("Substituting custom placeholders...");
+      for (const [placeholder, value] of Object.entries(inputs.customPlaceholders)) {
+        if (/^\{\{[a-zA-Z0-9_]+\}\}$/.test(placeholder)) {
+          const regex2 = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+          if (templateContent.includes(placeholder)) {
+            templateContent = templateContent.replace(regex2, String(value));
+            customPlaceholdersApplied++;
+            core5.info(`Substituted ${placeholder} -> ${value}`);
+          }
+        } else {
+          core5.warning(`Invalid placeholder format: ${placeholder}. Must match {{name}} pattern.`);
+        }
+      }
+      core5.info(`Applied ${customPlaceholdersApplied} custom placeholder(s)`);
+    }
     core5.info("Generating PR summary with AI...");
     const result = await generatePRSummar(processedDiff, changedFiles, {
       apiKey: inputs.apiKey,
@@ -77732,6 +78223,12 @@ async function run() {
     core5.setOutput("has_ghost_commits", String(hasGhostCommits));
     core5.setOutput("risk_level", result.riskLevel);
     core5.setOutput("impact_score", String(result.impactScore));
+    core5.setOutput("related_tickets", relatedTickets);
+    core5.setOutput("enhanced_title", enhancedTitle);
+    core5.setOutput("custom_placeholders_applied", String(customPlaceholdersApplied));
+    core5.setOutput("pr_size_lines", String(sizeResult.metrics.totalLines));
+    core5.setOutput("pr_size_warning_triggered", String(sizeWarningTriggered));
+    core5.setOutput("pr_size_blocked", String(sizeBlocked));
     if (hasGhostCommits) {
       const ghostWarnings = ghostCommitResults.filter((r) => r.detected).map((r) => {
         const sha = r.sha.substring(0, 7);

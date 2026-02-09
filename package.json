@@ -1,11 +1,9 @@
 {
   "name": "lazypr",
   "private": true,
+  "type": "module",
   "packageManager": "bun@1.2.23",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "build": "turbo build",
     "build:action": "cd apps/github-action && bun run build",

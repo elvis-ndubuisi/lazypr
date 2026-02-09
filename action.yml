@@ -30,6 +30,30 @@ inputs:
   github_token:
     description: "GitHub token for API access (automatically provided by GitHub Actions)"
     required: true
+  ticket_pattern:
+    description: "Custom regex pattern for ticket ID detection (e.g., 'PROJ-[0-9]+')"
+    required: false
+    default: ""
+  ticket_url_template:
+    description: "URL template for ticket links (use {{id}} placeholder)"
+    required: false
+    default: ""
+  auto_update_title:
+    description: "Whether to automatically update vague PR titles (true/false)"
+    required: false
+    default: "false"
+  custom_placeholders:
+    description: "Custom placeholders as JSON object for template substitution"
+    required: false
+    default: "{}"
+  pr_size_warning:
+    description: "Warn if PR exceeds this many lines (0 to disable). Default: 500"
+    required: false
+    default: "500"
+  pr_size_block:
+    description: "Block summarization if PR exceeds this many lines (0 to disable). Default: 2000"
+    required: false
+    default: "2000"
 
 outputs:
   summary:
@@ -40,6 +64,18 @@ outputs:
     description: "Risk level of the PR changes (LOW, MEDIUM, or HIGH)"
   impact_score:
     description: "Impact score from 0-100"
+  pr_size_lines:
+    description: "Total number of lines changed in the PR"
+  pr_size_warning_triggered:
+    description: "Whether the PR size warning was triggered (true/false)"
+  pr_size_blocked:
+    description: "Whether summarization was blocked due to PR size (true/false)"
+  related_tickets:
+    description: "Markdown list of detected tickets (JIRA, GitHub issues, etc.)"
+  enhanced_title:
+    description: "Updated PR title if auto_update_title was enabled and title was vague"
+  custom_placeholders_applied:
+    description: "Number of custom placeholders that were substituted in the template"
 
 runs:
   using: "node20"

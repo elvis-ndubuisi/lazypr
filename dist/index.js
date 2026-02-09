@@ -77360,12 +77360,13 @@ function calculatePRSize(diff) {
   for (const line of lines) {
     if (line.startsWith("diff --git")) {
       if (metrics.filesChanged > 0) {
-        if (currentFileAdded)
+        if (currentFileAdded) {
           metrics.filesAdded++;
-        else if (currentFileDeleted)
+        } else if (currentFileDeleted) {
           metrics.filesDeleted++;
-        else if (currentFileModified)
+        } else if (currentFileModified) {
           metrics.filesModified++;
+        }
       }
       metrics.filesChanged++;
       inHunk = false;
@@ -77393,12 +77394,13 @@ function calculatePRSize(diff) {
       }
     }
   }
-  if (currentFileAdded)
+  if (currentFileAdded) {
     metrics.filesAdded++;
-  else if (currentFileDeleted)
+  } else if (currentFileDeleted) {
     metrics.filesDeleted++;
-  else if (currentFileModified)
+  } else if (currentFileModified) {
     metrics.filesModified++;
+  }
   metrics.totalLines = metrics.additions + metrics.deletions;
   return metrics;
 }

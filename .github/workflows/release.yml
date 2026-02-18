@@ -47,6 +47,7 @@ jobs:
           test -s ./dist/index.js
 
       - name: Create Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -65,3 +66,27 @@ jobs:
             ```
 
             See [README.md](https://github.com/elvis-ndubuisi/lazypr/blob/main/README.md) for setup instructions.
+
+      - name: Comment on Release with Marketplace Instructions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releaseId = '${{ steps.create_release.outputs.id }}';
+            const tagName = '${{ github.ref_name }}';
+            const body = `## 🎯 Publish to GitHub Marketplace
+
+            This release is ready to be published to the GitHub Action Marketplace.
+
+            To publish:
+            1. Click **Edit** on this release
+            2. Check **"Publish this Action to the GitHub Marketplace"**
+            3. Click **Update release**
+
+            [Edit release and publish →](https://github.com/elvis-ndubuisi/lazypr/releases/edit/${tagName})`;
+
+            await github.rest.repos.createReleaseComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              body: body
+            });

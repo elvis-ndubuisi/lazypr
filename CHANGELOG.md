@@ -5,6 +5,12 @@ All notable changes to lazypr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **GitHub Action runtime**: Resolved "Could not find file '.cursor/rules/use-bun-instead-of-node-vite-npm-pnpm.mdc'" when running the action on GitHub-hosted runners. The `.cursor` directory contained a broken symlink (pointing to non-existent `CLAUDE.md`) and was being checked out with the action; Cursor-related tooling on the runner attempted to read it and failed. `.cursor` is now in `.gitignore` and untracked, so it is no longer shipped with the published action. Your local `.cursor` rules and skills remain for development; only the repository copy used by the marketplace is affected.
+
 ## [1.0.4] - 2026-01-18
 
 ### Security

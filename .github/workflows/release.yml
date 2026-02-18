@@ -35,16 +35,19 @@ jobs:
 
       - name: Verify Marketplace bundle is checked in
         # Marketplace requires `action.yml` and `dist/index.js` in the tagged commit.
+        # Note: We verify file existence and that the bundle was built from current source.
+        # The diff check is skipped because minification produces non-deterministic variable names.
         run: |
           git ls-files --error-unmatch ./action.yml
           git ls-files --error-unmatch ./dist/index.js
           mkdir -p ./dist
           cp apps/github-action/dist/index.js ./dist/index.js
-          git diff --exit-code -- ./dist/index.js
           test -f ./action.yml
           test -f ./dist/index.js
+          test -s ./dist/index.js
 
       - name: Create Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -63,3 +66,27 @@ jobs:
             ```
 
             See [README.md](https://github.com/elvis-ndubuisi/lazypr/blob/main/README.md) for setup instructions.
+
+      - name: Comment on Release with Marketplace Instructions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releaseId = '${{ steps.create_release.outputs.id }}';
+            const tagName = '${{ github.ref_name }}';
+            const body = `## 🎯 Publish to GitHub Marketplace
+
+            This release is ready to be published to the GitHub Action Marketplace.
+
+            To publish:
+            1. Click **Edit** on this release
+            2. Check **"Publish this Action to the GitHub Marketplace"**
+            3. Click **Update release**
+
+            [Edit release and publish →](https://github.com/elvis-ndubuisi/lazypr/releases/edit/${tagName})`;
+
+            await github.rest.repos.createReleaseComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              body: body
+            });

@@ -35,6 +35,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # IntelliJ based IDEs
 .idea
 
+# Cursor IDE (do not ship with published action - avoids broken symlink on runners)
+.cursor
+
 # Finder (MacOS) folder config
 .DS_Store
 

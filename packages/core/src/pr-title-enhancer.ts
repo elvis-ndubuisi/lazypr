@@ -8,12 +8,17 @@
 export interface TitleEnhancementResult {
   /** Whether the title is considered vague */
   isVague: boolean;
-  /** Vagueness score (0-100, >= 70 is vague) */
+  /** Vagueness score (0-100, >= threshold is vague) */
   score: number;
   /** Human-readable reason for the score */
   reason: string;
   /** Suggested improved title (only if vague) */
   suggestedTitle?: string;
+}
+
+export interface PRTitleEnhancerOptions {
+  /** Vagueness threshold (0-100). Titles scoring >= threshold are considered vague. Default: 40 (aggressive) */
+  threshold?: number;
 }
 
 interface VaguenessPattern {
@@ -27,29 +32,38 @@ interface VaguenessPattern {
 
 /**
  * Default patterns that indicate a vague title
+ * Covers lazy dev patterns: single words, generic verbs, common shortcuts
  */
 const DEFAULT_VAGUE_PATTERNS: VaguenessPattern[] = [
   {
-    pattern: /^(update|fix|wip|changes|modified|refactor|clean)$/i,
-    score: 30,
+    pattern:
+      /^(fix|fixes|fixed|fixing|update|updates|updated|updating|change|changes|changed|changing|modify|modifies|modified|modifying|refactor|refactors|refactored|refactoring|clean|cleans|cleaned|cleaning|wip|work|works|worked|working|temp|tmp|temps|hotfix|hotfixes|bugfix|bugfixes|patch|patches|quick|fast|asap|urgent|done|complete|completed|finish|finished|implement|implements|implemented|implementing|add|adds|added|adding|remove|removes|removed|removing|delete|deletes|deleted|deleting|create|creates|created|creating)$/i,
+    score: 40,
     description: "Generic action verb without context",
   },
   {
-    pattern: /^(auth|config|stuff|things|main|test|api|ui|css|bug)$/i,
-    score: 35,
+    pattern:
+      /^(it|this|that|stuff|things|main|test|tests|testing|api|ui|css|bug|bugs|auth|config|configs|code|file|files|feature|features|page|pages|component|components|module|modules|function|functions|class|classes|method|methods|service|services|util|utils|helper|helpers|fixme|todo|hack|debug|debugging|error|errors|issue|issues|problem|problems|sync|syncs|synced|syncing|deploy|deploys|deployed|deploying|release|releases|released|releasing|merge|merges|merged|merging|push|pushes|pushed|pushing|pull|pulls|pulled|pulling|commit|commits|committed|committing)$/i,
+    score: 45,
     description: "Single generic word without details",
   },
-  { pattern: /^.{1,15}$/, score: 30, description: "Very short title (< 15 chars)" },
-  { pattern: /^\s*$/g, score: 100, description: "Empty or whitespace-only title" },
+  { pattern: /^.{1,15}$/, score: 35, description: "Very short title (< 15 chars)" },
+  { pattern: /^\s*$/, score: 100, description: "Empty or whitespace-only title" },
   {
-    pattern: /^(?:.*\s)?(?:fix|update|change|add|remove)\s*(?:it|this|that|stuff|things|code)$/i,
-    score: 40,
+    pattern:
+      /^(?:.*\s)?(?:fix|fixes|update|updates|change|changes|add|adds|remove|removes|delete|deletes)\s+(it|this|that|stuff|things|code|file|files|bug|bugs|issue|issues|problem|problems)$/i,
+    score: 50,
     description: "Generic action + generic noun",
   },
   {
-    pattern: /\b(tmp|temp|temporary|wip|draft)\b/i,
-    score: 25,
-    description: "Contains temporary/WIP indicators",
+    pattern: /\b(tmp|temp|temporary|wip|draft|asap|urgent|quick|fast|hack|fixme|todo)\b/i,
+    score: 30,
+    description: "Contains temporary/WIP/rush indicators",
+  },
+  {
+    pattern: /^(pls|please|help|need|wanted|required|required|needed)$/i,
+    score: 50,
+    description: "Non-descriptive request word",
   },
 ];
 
@@ -67,9 +81,11 @@ const DEFAULT_VAGUE_PATTERNS: VaguenessPattern[] = [
  */
 export class PRTitleEnhancer {
   private patterns: VaguenessPattern[];
+  private threshold: number;
 
-  constructor(customPatterns?: VaguenessPattern[]) {
-    this.patterns = customPatterns ?? DEFAULT_VAGUE_PATTERNS;
+  constructor(options?: PRTitleEnhancerOptions) {
+    this.patterns = DEFAULT_VAGUE_PATTERNS;
+    this.threshold = options?.threshold ?? 40;
   }
 
   /**
@@ -82,9 +98,8 @@ export class PRTitleEnhancer {
    */
   analyze(title: string, diff: string, files: string[]): TitleEnhancementResult {
     const { score, reasons } = this.calculateVaguenessScore(title);
-    const threshold = 70;
 
-    if (score < threshold) {
+    if (score < this.threshold) {
       return {
         isVague: false,
         score,
@@ -92,7 +107,6 @@ export class PRTitleEnhancer {
       };
     }
 
-    // Title is vague, generate improvement
     const suggestedTitle = this.generateImprovedTitle(title, diff, files);
 
     return {
@@ -105,7 +119,7 @@ export class PRTitleEnhancer {
 
   /**
    * Calculates the vagueness score (0-100)
-   * Score >= 70 means the title is considered vague
+   * Score >= threshold means the title is considered vague
    */
   private calculateVaguenessScore(title: string): { score: number; reasons: string[] } {
     let score = 0;
@@ -305,7 +319,12 @@ export class PRTitleEnhancer {
  * }
  * ```
  */
-export function analyzeTitle(title: string, diff: string, files: string[]): TitleEnhancementResult {
-  const enhancer = new PRTitleEnhancer();
+export function analyzeTitle(
+  title: string,
+  diff: string,
+  files: string[],
+  options?: PRTitleEnhancerOptions,
+): TitleEnhancementResult {
+  const enhancer = new PRTitleEnhancer(options);
   return enhancer.analyze(title, diff, files);
 }

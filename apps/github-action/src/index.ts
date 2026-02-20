@@ -43,6 +43,8 @@ interface Inputs {
   ticketUrlTemplate?: string;
   /** Whether to auto-update vague PR titles */
   autoUpdateTitle: boolean;
+  /** Vagueness threshold (0-100) for title updates. Lower = more aggressive */
+  vaguenessThreshold: number;
   /** Custom placeholders to substitute in templates */
   customPlaceholders?: Record<string, string>;
   /** PR size warning threshold (lines) */
@@ -116,6 +118,9 @@ function getInputs(): Inputs {
   const prSizeWarning = Number.parseInt(core.getInput("pr_size_warning") || "500", 10);
   const prSizeBlock = Number.parseInt(core.getInput("pr_size_block") || "2000", 10);
 
+  // Parse vagueness threshold
+  const vaguenessThreshold = Number.parseInt(core.getInput("vagueness_threshold") || "40", 10);
+
   return {
     apiKey: core.getInput("api_key", { required: true }),
     model,
@@ -127,6 +132,7 @@ function getInputs(): Inputs {
     ticketPattern: core.getInput("ticket_pattern") || undefined,
     ticketUrlTemplate: core.getInput("ticket_url_template") || undefined,
     autoUpdateTitle: core.getInput("auto_update_title") === "true",
+    vaguenessThreshold,
     customPlaceholders,
     prSizeWarning,
     prSizeBlock,
@@ -340,7 +346,7 @@ async function run(): Promise<void> {
 
     if (inputs.autoUpdateTitle) {
       core.info("Analyzing PR title for vagueness...");
-      const titleEnhancer = new PRTitleEnhancer();
+      const titleEnhancer = new PRTitleEnhancer({ threshold: inputs.vaguenessThreshold });
       const titleResult = titleEnhancer.analyze(prContext.title, processedDiff, changedFiles);
 
       if (titleResult.isVague && titleResult.suggestedTitle) {

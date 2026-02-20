@@ -77073,38 +77073,44 @@ class TokenManager {
 // ../../packages/core/dist/pr-title-enhancer.js
 var DEFAULT_VAGUE_PATTERNS = [
   {
-    pattern: /^(update|fix|wip|changes|modified|refactor|clean)$/i,
-    score: 30,
+    pattern: /^(fix|fixes|fixed|fixing|update|updates|updated|updating|change|changes|changed|changing|modify|modifies|modified|modifying|refactor|refactors|refactored|refactoring|clean|cleans|cleaned|cleaning|wip|work|works|worked|working|temp|tmp|temps|hotfix|hotfixes|bugfix|bugfixes|patch|patches|quick|fast|asap|urgent|done|complete|completed|finish|finished|implement|implements|implemented|implementing|add|adds|added|adding|remove|removes|removed|removing|delete|deletes|deleted|deleting|create|creates|created|creating)$/i,
+    score: 40,
     description: "Generic action verb without context"
   },
   {
-    pattern: /^(auth|config|stuff|things|main|test|api|ui|css|bug)$/i,
-    score: 35,
+    pattern: /^(it|this|that|stuff|things|main|test|tests|testing|api|ui|css|bug|bugs|auth|config|configs|code|file|files|feature|features|page|pages|component|components|module|modules|function|functions|class|classes|method|methods|service|services|util|utils|helper|helpers|fixme|todo|hack|debug|debugging|error|errors|issue|issues|problem|problems|sync|syncs|synced|syncing|deploy|deploys|deployed|deploying|release|releases|released|releasing|merge|merges|merged|merging|push|pushes|pushed|pushing|pull|pulls|pulled|pulling|commit|commits|committed|committing)$/i,
+    score: 45,
     description: "Single generic word without details"
   },
-  { pattern: /^.{1,15}$/, score: 30, description: "Very short title (< 15 chars)" },
-  { pattern: /^\s*$/g, score: 100, description: "Empty or whitespace-only title" },
+  { pattern: /^.{1,15}$/, score: 35, description: "Very short title (< 15 chars)" },
+  { pattern: /^\s*$/, score: 100, description: "Empty or whitespace-only title" },
   {
-    pattern: /^(?:.*\s)?(?:fix|update|change|add|remove)\s*(?:it|this|that|stuff|things|code)$/i,
-    score: 40,
+    pattern: /^(?:.*\s)?(?:fix|fixes|update|updates|change|changes|add|adds|remove|removes|delete|deletes)\s+(it|this|that|stuff|things|code|file|files|bug|bugs|issue|issues|problem|problems)$/i,
+    score: 50,
     description: "Generic action + generic noun"
   },
   {
-    pattern: /\b(tmp|temp|temporary|wip|draft)\b/i,
-    score: 25,
-    description: "Contains temporary/WIP indicators"
+    pattern: /\b(tmp|temp|temporary|wip|draft|asap|urgent|quick|fast|hack|fixme|todo)\b/i,
+    score: 30,
+    description: "Contains temporary/WIP/rush indicators"
+  },
+  {
+    pattern: /^(pls|please|help|need|wanted|required|required|needed)$/i,
+    score: 50,
+    description: "Non-descriptive request word"
   }
 ];
 
 class PRTitleEnhancer {
   patterns;
-  constructor(customPatterns) {
-    this.patterns = customPatterns ?? DEFAULT_VAGUE_PATTERNS;
+  threshold;
+  constructor(options) {
+    this.patterns = DEFAULT_VAGUE_PATTERNS;
+    this.threshold = options?.threshold ?? 40;
   }
   analyze(title, diff, files) {
     const { score, reasons } = this.calculateVaguenessScore(title);
-    const threshold = 70;
-    if (score < threshold) {
+    if (score < this.threshold) {
       return {
         isVague: false,
         score,
@@ -77993,6 +77999,7 @@ function getInputs() {
   }
   const prSizeWarning = Number.parseInt(core5.getInput("pr_size_warning") || "500", 10);
   const prSizeBlock = Number.parseInt(core5.getInput("pr_size_block") || "2000", 10);
+  const vaguenessThreshold = Number.parseInt(core5.getInput("vagueness_threshold") || "40", 10);
   return {
     apiKey: core5.getInput("api_key", { required: true }),
     model,
@@ -78004,6 +78011,7 @@ function getInputs() {
     ticketPattern: core5.getInput("ticket_pattern") || undefined,
     ticketUrlTemplate: core5.getInput("ticket_url_template") || undefined,
     autoUpdateTitle: core5.getInput("auto_update_title") === "true",
+    vaguenessThreshold,
     customPlaceholders,
     prSizeWarning,
     prSizeBlock
@@ -78142,7 +78150,7 @@ async function run() {
     let enhancedTitle = "";
     if (inputs.autoUpdateTitle) {
       core5.info("Analyzing PR title for vagueness...");
-      const titleEnhancer = new PRTitleEnhancer;
+      const titleEnhancer = new PRTitleEnhancer({ threshold: inputs.vaguenessThreshold });
       const titleResult = titleEnhancer.analyze(prContext.title, processedDiff, changedFiles);
       if (titleResult.isVague && titleResult.suggestedTitle) {
         core5.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);

@@ -15,6 +15,9 @@ Automatically generate AI-powered PR summaries with impact scoring, Ghost Commit
 - **Reviewer Checklists**: Generates context-aware checklist items based on the code changes
 - **Risk Labels**: Adds `lazypr/high-risk`, `lazypr/medium-risk`, or `lazypr/low-risk` labels
 - **Custom Templates**: Supports loading custom prompt templates from your repository
+- **PR Title Enhancement**: Auto-renames vague titles like "fixes" to descriptive alternatives
+- **Ticket Detection**: Extracts and links JIRA, GitHub issues from PRs
+- **PR Size Detection**: Warns on oversized PRs, optionally blocks massive ones
 - **1M Token Context**: Gemini 2.5 Flash handles large PRs effortlessly
 
 ## Usage
@@ -58,6 +61,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   summarize:
@@ -70,10 +74,13 @@ jobs:
       - uses: elvis-ndubuisi/lazypr@v1
         with:
           api_key: ${{ secrets.GEMINI_API_KEY }}
-          provider: gemini  # openai, anthropic, or gemini
-          model: gemini-2.5-flash  # optional, auto-selected based on provider
-          template: default  # default, concise, verbose, security-focused
-          custom_template: true  # enable loading .github/lazypr-template.md
+          provider: gemini
+          model: gemini-2.5-flash
+          template: default
+          custom_template: true
+          auto_update_title: true
+          vagueness_threshold: 40
+          pr_size_warning: 500
           github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -83,9 +90,17 @@ jobs:
 |-------|----------|---------|-------------|
 | `api_key` | Yes | - | OpenAI, Anthropic, or Google Gemini API key |
 | `provider` | No | `openai` | LLM provider (`openai`, `anthropic`, or `gemini`) |
-| `model` | No | (provider-specific) | Model to use. Defaults: `gpt-4-turbo` (OpenAI), `claude-sonnet-4-20250514` (Anthropic), `gemini-2.5-flash` (Gemini) |
+| `model` | No | (auto) | Model to use. Auto-selected based on provider |
 | `template` | No | `default` | Template name (`default`, `concise`, `verbose`, `security-focused`) |
-| `custom_template` | No | `false` | Whether to load custom template from repo |
+| `custom_template` | No | `true` | Whether to load custom template from repo |
+| `custom_template_path` | No | - | Explicit path to custom template file |
+| `ticket_pattern` | No | - | Custom regex for ticket detection (e.g., `[A-Z]+-\\d+`) |
+| `ticket_url_template` | No | - | URL template for ticket links (use `{{id}}`) |
+| `auto_update_title` | No | `false` | Automatically rename vague PR titles |
+| `vagueness_threshold` | No | `40` | Vagueness score (0-100) that triggers title update. Lower = more aggressive |
+| `custom_placeholders` | No | `{}` | JSON object of custom template placeholders |
+| `pr_size_warning` | No | `500` | Warn if PR exceeds this many lines (0 to disable) |
+| `pr_size_block` | No | `2000` | Block if PR exceeds this many lines (0 to disable) |
 | `github_token` | Yes | `${{ github.token }}` | GitHub token for API access |
 
 ## Outputs
@@ -96,6 +111,71 @@ jobs:
 | `has_ghost_commits` | Whether ghost commits were detected |
 | `risk_level` | Risk level (`LOW`, `MEDIUM`, `HIGH`) |
 | `impact_score` | Impact score (0-100) |
+| `enhanced_title` | Improved PR title if original was vague, empty if no change |
+| `related_tickets` | Markdown-formatted list of detected tickets |
+| `pr_size_lines` | Total lines changed in the PR |
+| `pr_size_warning_triggered` | Whether PR size warning was triggered |
+| `pr_size_blocked` | Whether summarization was blocked due to size |
+
+## PR Title Enhancement
+
+Uses a **hybrid pattern + AI approach** for cost optimization:
+
+```
+PR Title → Pattern Check → (vague?) → Rename immediately (no AI)
+                    ↓
+              Branch Name? → AI evaluates → Rename if needed
+                    ↓
+              Descriptive? → Keep title
+```
+
+### Cost Optimization
+
+| Scenario | AI Call? | Tokens | Cost |
+|----------|----------|--------|------|
+| `fixes`, `wip` (obvious) | ❌ No | 0 | **$0** |
+| `Add login button` (descriptive) | ❌ No | 0 | **$0** |
+| `feat/auth-integration` (branch name) | ✅ Yes | ~300 | **~$0.001** |
+
+**~80% of PRs require no AI call.** When AI is needed, it uses ~10x fewer tokens than full summary generation.
+
+### Branch Name Detection
+
+Titles derived from branch names trigger AI evaluation:
+
+| Branch Name | PR Title | Action |
+|-------------|----------|--------|
+| `feat/auth-integration` | `Feat/auth-integration` | AI evaluates |
+| `fix-null-pointer` | `Fix-null-pointer` | AI evaluates |
+| `auth_integration` | `Auth_integration` | AI evaluates |
+
+Patterns detected: `feat/*`, `fix/*`, `chore/*`, kebab-case, underscore-style.
+
+### Usage
+
+```yaml
+- uses: elvis-ndubuisi/lazypr@v1
+  with:
+    api_key: ${{ secrets.GEMINI_API_KEY }}
+    auto_update_title: true
+    vagueness_threshold: 40  # Aggressive (catches "fixes", "updates", etc.)
+```
+
+### Threshold Guide
+
+| Threshold | Behavior |
+|-----------|----------|
+| `40` (default) | Aggressive - catches "fixes", "updates", "wip", "hotfix", branch names |
+| `60` | Moderate - very generic titles only |
+| `70` | Lenient - only extremely vague titles |
+
+### Example Transformations
+
+| Before | After |
+|--------|-------|
+| `fixes` | `Fix authentication token validation in auth service` |
+| `feat/auth-integration` | `Add JWT authentication to login flow` |
+| `wip` | `Update checkout flow with payment integration` |
 
 ## Templates
 
@@ -124,6 +204,7 @@ Template placeholders:
 - `{{riskScore}}` - Impact score (0-100)
 - `{{highRiskFiles}}` - List of high-risk files
 - `{{fileBreakdown}}` - Summary of file risk breakdown
+- `{{relatedTickets}}` - Detected ticket links
 
 ## Risk Assessment
 

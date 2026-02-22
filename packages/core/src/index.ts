@@ -465,6 +465,7 @@ export { TokenManager, type TokenWeight, type TruncateOptions } from "./token-ma
 export {
   PRTitleEnhancer,
   analyzeTitle,
+  type PRTitleEnhancerOptions,
   type TitleEnhancementResult,
 } from "./pr-title-enhancer.js";
 export {

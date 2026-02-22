@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { type RiskLevel, generatePRSummar } from "@lazypr/ai-engine";
+import { type RiskLevel, evaluatePRTitle, generatePRSummar } from "@lazypr/ai-engine";
 import { getTemplate } from "@lazypr/config-presets";
 import {
   DiffSanitizer,
@@ -350,15 +350,37 @@ async function run(): Promise<void> {
       const titleResult = titleEnhancer.analyze(prContext.title, processedDiff, changedFiles);
 
       if (titleResult.isVague && titleResult.suggestedTitle) {
-        core.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);
+        // Pattern-based rename (no AI cost)
         enhancedTitle = titleResult.suggestedTitle;
-
-        // Update the PR title
         try {
           await updatePRTitle(octokit, prContext, enhancedTitle);
           core.info(`✓ PR title updated: "${prContext.title}" -> "${enhancedTitle}"`);
         } catch (error) {
           core.warning(`Failed to update PR title: ${error}`);
+        }
+      } else if (titleResult.needsAIEvaluation) {
+        // Branch-name style - use AI for evaluation
+        core.info("Title looks like branch name, using AI to evaluate...");
+
+        const ticketRef = tickets.length > 0 ? (tickets[0]?.id ?? undefined) : undefined;
+
+        const aiResult = await evaluatePRTitle(prContext.title, changedFiles, {
+          provider: inputs.provider,
+          apiKey: inputs.apiKey,
+          model: inputs.model,
+          ticketRef,
+        });
+
+        if (aiResult.isVague && aiResult.suggestedTitle) {
+          enhancedTitle = aiResult.suggestedTitle;
+          try {
+            await updatePRTitle(octokit, prContext, enhancedTitle);
+            core.info(`✓ PR title updated via AI: "${prContext.title}" -> "${enhancedTitle}"`);
+          } catch (error) {
+            core.warning(`Failed to update PR title: ${error}`);
+          }
+        } else {
+          core.info(`AI says title is good: ${aiResult.reason}`);
         }
       } else {
         core.info(`Title is descriptive enough (score: ${titleResult.score}%)`);

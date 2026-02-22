@@ -8,12 +8,19 @@
 export interface TitleEnhancementResult {
   /** Whether the title is considered vague */
   isVague: boolean;
-  /** Vagueness score (0-100, >= 70 is vague) */
+  /** Vagueness score (0-100, >= threshold is vague) */
   score: number;
   /** Human-readable reason for the score */
   reason: string;
   /** Suggested improved title (only if vague) */
   suggestedTitle?: string;
+  /** Whether AI evaluation is needed (for borderline cases like branch names) */
+  needsAIEvaluation?: boolean;
+}
+
+export interface PRTitleEnhancerOptions {
+  /** Vagueness threshold (0-100). Titles scoring >= threshold are considered vague. Default: 40 (aggressive) */
+  threshold?: number;
 }
 
 interface VaguenessPattern {
@@ -23,35 +30,74 @@ interface VaguenessPattern {
   score: number;
   /** Description of why this is vague */
   description: string;
+  /** If true, triggers AI evaluation instead of pattern-based rename */
+  triggerAI?: boolean;
 }
 
 /**
  * Default patterns that indicate a vague title
+ * Covers lazy dev patterns: single words, generic verbs, common shortcuts
  */
 const DEFAULT_VAGUE_PATTERNS: VaguenessPattern[] = [
   {
-    pattern: /^(update|fix|wip|changes|modified|refactor|clean)$/i,
-    score: 30,
+    pattern:
+      /^(fix|fixes|fixed|fixing|update|updates|updated|updating|change|changes|changed|changing|modify|modifies|modified|modifying|refactor|refactors|refactored|refactoring|clean|cleans|cleaned|cleaning|wip|work|works|worked|working|temp|tmp|temps|hotfix|hotfixes|bugfix|bugfixes|patch|patches|quick|fast|asap|urgent|done|complete|completed|finish|finished|implement|implements|implemented|implementing|add|adds|added|adding|remove|removes|removed|removing|delete|deletes|deleted|deleting|create|creates|created|creating)$/i,
+    score: 40,
     description: "Generic action verb without context",
   },
   {
-    pattern: /^(auth|config|stuff|things|main|test|api|ui|css|bug)$/i,
-    score: 35,
+    pattern:
+      /^(it|this|that|stuff|things|main|test|tests|testing|api|ui|css|bug|bugs|auth|config|configs|code|file|files|feature|features|page|pages|component|components|module|modules|function|functions|class|classes|method|methods|service|services|util|utils|helper|helpers|fixme|todo|hack|debug|debugging|error|errors|issue|issues|problem|problems|sync|syncs|synced|syncing|deploy|deploys|deployed|deploying|release|releases|released|releasing|merge|merges|merged|merging|push|pushes|pushed|pushing|pull|pulls|pulled|pulling|commit|commits|committed|committing)$/i,
+    score: 45,
     description: "Single generic word without details",
   },
-  { pattern: /^.{1,15}$/, score: 30, description: "Very short title (< 15 chars)" },
-  { pattern: /^\s*$/g, score: 100, description: "Empty or whitespace-only title" },
+  { pattern: /^.{1,15}$/, score: 35, description: "Very short title (< 15 chars)" },
+  { pattern: /^\s*$/, score: 100, description: "Empty or whitespace-only title" },
   {
-    pattern: /^(?:.*\s)?(?:fix|update|change|add|remove)\s*(?:it|this|that|stuff|things|code)$/i,
-    score: 40,
+    pattern:
+      /^(?:.*\s)?(?:fix|fixes|update|updates|change|changes|add|adds|remove|removes|delete|deletes)\s+(it|this|that|stuff|things|code|file|files|bug|bugs|issue|issues|problem|problems)$/i,
+    score: 50,
     description: "Generic action + generic noun",
   },
   {
-    pattern: /\b(tmp|temp|temporary|wip|draft)\b/i,
-    score: 25,
-    description: "Contains temporary/WIP indicators",
+    pattern: /\b(tmp|temp|temporary|wip|draft|asap|urgent|quick|fast|hack|fixme|todo)\b/i,
+    score: 30,
+    description: "Contains temporary/WIP/rush indicators",
+  },
+  {
+    pattern: /^(pls|please|help|need|wanted|required|required|needed)$/i,
+    score: 50,
+    description: "Non-descriptive request word",
   },
 ];
+
+/**
+ * Branch-name detection patterns
+ * These don't auto-rename but trigger AI evaluation for borderline cases
+ */
+const BRANCH_NAME_PATTERNS: VaguenessPattern[] = [
+  {
+    pattern: /^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert|hotfix)\/.+$/i,
+    score: 0,
+    description: "Branch-style title with type prefix (e.g., 'Feat/feature-name')",
+    triggerAI: true,
+  },
+  {
+    pattern: /^[A-Za-z]+(-[A-Za-z]+)+$/,
+    score: 0,
+    description: "Kebab-case title without spaces (likely branch name)",
+    triggerAI: true,
+  },
+  {
+    pattern: /^[A-Za-z]+(_[A-Za-z]+)+$/,
+    score: 0,
+    description: "Underscore-style title without spaces (likely branch name)",
+    triggerAI: true,
+  },
+];
+
+/** Combined patterns for title analysis */
+const ALL_VAGUE_PATTERNS = [...DEFAULT_VAGUE_PATTERNS, ...BRANCH_NAME_PATTERNS];
 
 /**
  * Analyzes a PR title for vagueness and suggests improvements
@@ -67,9 +113,11 @@ const DEFAULT_VAGUE_PATTERNS: VaguenessPattern[] = [
  */
 export class PRTitleEnhancer {
   private patterns: VaguenessPattern[];
+  private threshold: number;
 
-  constructor(customPatterns?: VaguenessPattern[]) {
-    this.patterns = customPatterns ?? DEFAULT_VAGUE_PATTERNS;
+  constructor(options?: PRTitleEnhancerOptions) {
+    this.patterns = ALL_VAGUE_PATTERNS;
+    this.threshold = options?.threshold ?? 40;
   }
 
   /**
@@ -81,42 +129,57 @@ export class PRTitleEnhancer {
    * @returns Analysis result with score and suggestion
    */
   analyze(title: string, diff: string, files: string[]): TitleEnhancementResult {
-    const { score, reasons } = this.calculateVaguenessScore(title);
-    const threshold = 70;
+    const { score, reasons, needsAI } = this.calculateVaguenessScore(title);
 
-    if (score < threshold) {
+    // Score >= 60: Obviously vague, rename immediately (no AI cost)
+    if (score >= 60) {
+      const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+      return { isVague: true, score, reason: reasons.join("; "), suggestedTitle };
+    }
+
+    // Branch-name style with low pattern score: needs AI evaluation
+    if (needsAI && score < this.threshold) {
       return {
         isVague: false,
         score,
-        reason: reasons.join("; ") || "Title is descriptive enough",
+        reason: reasons.join("; "),
+        needsAIEvaluation: true,
       };
     }
 
-    // Title is vague, generate improvement
-    const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+    // Pattern-based decision (threshold check)
+    if (score >= this.threshold) {
+      const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+      return { isVague: true, score, reason: reasons.join("; "), suggestedTitle };
+    }
 
-    return {
-      isVague: true,
-      score,
-      reason: reasons.join("; "),
-      suggestedTitle,
-    };
+    return { isVague: false, score, reason: "Title is descriptive enough" };
   }
 
   /**
    * Calculates the vagueness score (0-100)
-   * Score >= 70 means the title is considered vague
+   * Score >= threshold means the title is considered vague
    */
-  private calculateVaguenessScore(title: string): { score: number; reasons: string[] } {
+  private calculateVaguenessScore(title: string): {
+    score: number;
+    reasons: string[];
+    needsAI: boolean;
+  } {
     let score = 0;
     const reasons: string[] = [];
+    let needsAI = false;
     const matchedPatterns = new Set<string>();
 
     // Check each pattern
-    for (const { pattern, score: points, description } of this.patterns) {
+    for (const { pattern, score: points, description, triggerAI } of this.patterns) {
       if (pattern.test(title) && !matchedPatterns.has(description)) {
-        score += points;
-        reasons.push(description);
+        if (triggerAI) {
+          needsAI = true;
+          reasons.push(description);
+        } else {
+          score += points;
+          reasons.push(description);
+        }
         matchedPatterns.add(description);
       }
     }
@@ -137,7 +200,7 @@ export class PRTitleEnhancer {
     }
 
     // Cap at 100
-    return { score: Math.min(score, 100), reasons };
+    return { score: Math.min(score, 100), reasons, needsAI };
   }
 
   /**
@@ -305,7 +368,12 @@ export class PRTitleEnhancer {
  * }
  * ```
  */
-export function analyzeTitle(title: string, diff: string, files: string[]): TitleEnhancementResult {
-  const enhancer = new PRTitleEnhancer();
+export function analyzeTitle(
+  title: string,
+  diff: string,
+  files: string[],
+  options?: PRTitleEnhancerOptions,
+): TitleEnhancementResult {
+  const enhancer = new PRTitleEnhancer(options);
   return enhancer.analyze(title, diff, files);
 }

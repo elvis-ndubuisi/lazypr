@@ -36,9 +36,13 @@ inputs:
     required: false
     default: ""
   auto_update_title:
-    description: "Automatically update vague PR titles (70% vagueness threshold). Only updates if enabled."
+    description: "Automatically update vague PR titles. Only updates if enabled."
     required: false
     default: "false"
+  vagueness_threshold:
+    description: "Vagueness score (0-100) that triggers auto-rename. Lower = more aggressive. Default: 40 (catches lazy titles like 'fixes', 'updates')"
+    required: false
+    default: "40"
   custom_placeholders:
     description: "JSON object of custom placeholders to substitute in templates (e.g. {\"{{qaNotes}}\": \"Tested on staging\"})"
     required: false

@@ -18,11 +18,9 @@ _.log
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # dotenv environment variable files
-.env
 .env.development.local
 .env.test.local
 .env.production.local
-.env.local
 
 # caches
 .eslintcache
@@ -47,3 +45,4 @@ Thumbs.db
 *.swo
 ~*
 
+config.bat

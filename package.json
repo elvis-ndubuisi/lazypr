@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.2.23",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "turbo build",
     "build:action": "cd apps/github-action && bun run build",
@@ -21,6 +24,8 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "dotenv": "^8.2.0",
+    "node-fetch": "^3.3.2",
     "turbo": "^2.7.4"
   }
 }

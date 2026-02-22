@@ -76749,6 +76749,79 @@ function createLangChainProvider(config2) {
     }
   };
 }
+
+// ../../packages/ai-engine/dist/title-evaluator.js
+var TITLE_EVALUATION_PROMPT = `You are a PR title quality evaluator.
+
+Current PR title: "{{title}}"
+Detected ticket: {{ticketRef}}
+
+Changed files (max 5):
+{{files}}
+
+Rules:
+1. Titles must be SHORT (5-10 words max) and DESCRIPTIVE
+2. DO NOT summarize the entire PR - that's what the PR body is for
+3. Good examples:
+   - "Add JWT authentication to login flow"
+   - "Fix null pointer in payment processor"
+   - "PROJ-123: Update user profile validation"
+4. Bad examples:
+   - "This PR implements JWT-based authentication with refresh tokens..." (too long)
+   - "feat/auth-integration" (branch name, not title)
+   - "fixes" (too vague)
+5. If ticket detected, include it: "PROJ-123: <descriptive title>"
+
+Evaluate the current title. Respond ONLY with valid JSON (no markdown, no code blocks):
+{"isVague":boolean,"suggestedTitle":"short title if vague, null if good","reason":"one sentence"}`;
+function getDefaultModel3(provider) {
+  switch (provider) {
+    case "gemini":
+      return "gemini-2.5-flash";
+    case "anthropic":
+      return "claude-sonnet-4-20250514";
+    default:
+      return "gpt-4-turbo";
+  }
+}
+async function evaluatePRTitle(title, files, options) {
+  const { provider: providerType, apiKey, model, ticketRef } = options;
+  const provider = createLangChainProvider({
+    provider: providerType,
+    apiKey,
+    model: model || getDefaultModel3(providerType)
+  });
+  const fileList = files.slice(0, 5).map((f) => `- ${f}`).join(`
+`);
+  const ticketDisplay = ticketRef || "none";
+  const prompt = TITLE_EVALUATION_PROMPT.replace("{{title}}", title).replace("{{ticketRef}}", ticketDisplay).replace("{{files}}", fileList || "No files detected");
+  try {
+    const completion = await provider.complete(prompt, {
+      model: model || getDefaultModel3(providerType),
+      temperature: 0.3,
+      maxTokens: 100
+    });
+    const responseText = completion.text.trim();
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return {
+        isVague: false,
+        reason: "AI response was not valid JSON, keeping title"
+      };
+    }
+    const response = JSON.parse(jsonMatch[0]);
+    return {
+      isVague: response.isVague ?? false,
+      suggestedTitle: response.suggestedTitle || undefined,
+      reason: response.reason || "No reason provided"
+    };
+  } catch (error41) {
+    return {
+      isVague: false,
+      reason: `AI evaluation failed: ${error41 instanceof Error ? error41.message : "Unknown error"}`
+    };
+  }
+}
 // ../../node_modules/@google/generative-ai/dist/index.mjs
 var HarmCategory2;
 (function(HarmCategory3) {
@@ -77073,60 +77146,96 @@ class TokenManager {
 // ../../packages/core/dist/pr-title-enhancer.js
 var DEFAULT_VAGUE_PATTERNS = [
   {
-    pattern: /^(update|fix|wip|changes|modified|refactor|clean)$/i,
-    score: 30,
+    pattern: /^(fix|fixes|fixed|fixing|update|updates|updated|updating|change|changes|changed|changing|modify|modifies|modified|modifying|refactor|refactors|refactored|refactoring|clean|cleans|cleaned|cleaning|wip|work|works|worked|working|temp|tmp|temps|hotfix|hotfixes|bugfix|bugfixes|patch|patches|quick|fast|asap|urgent|done|complete|completed|finish|finished|implement|implements|implemented|implementing|add|adds|added|adding|remove|removes|removed|removing|delete|deletes|deleted|deleting|create|creates|created|creating)$/i,
+    score: 40,
     description: "Generic action verb without context"
   },
   {
-    pattern: /^(auth|config|stuff|things|main|test|api|ui|css|bug)$/i,
-    score: 35,
+    pattern: /^(it|this|that|stuff|things|main|test|tests|testing|api|ui|css|bug|bugs|auth|config|configs|code|file|files|feature|features|page|pages|component|components|module|modules|function|functions|class|classes|method|methods|service|services|util|utils|helper|helpers|fixme|todo|hack|debug|debugging|error|errors|issue|issues|problem|problems|sync|syncs|synced|syncing|deploy|deploys|deployed|deploying|release|releases|released|releasing|merge|merges|merged|merging|push|pushes|pushed|pushing|pull|pulls|pulled|pulling|commit|commits|committed|committing)$/i,
+    score: 45,
     description: "Single generic word without details"
   },
-  { pattern: /^.{1,15}$/, score: 30, description: "Very short title (< 15 chars)" },
-  { pattern: /^\s*$/g, score: 100, description: "Empty or whitespace-only title" },
+  { pattern: /^.{1,15}$/, score: 35, description: "Very short title (< 15 chars)" },
+  { pattern: /^\s*$/, score: 100, description: "Empty or whitespace-only title" },
   {
-    pattern: /^(?:.*\s)?(?:fix|update|change|add|remove)\s*(?:it|this|that|stuff|things|code)$/i,
-    score: 40,
+    pattern: /^(?:.*\s)?(?:fix|fixes|update|updates|change|changes|add|adds|remove|removes|delete|deletes)\s+(it|this|that|stuff|things|code|file|files|bug|bugs|issue|issues|problem|problems)$/i,
+    score: 50,
     description: "Generic action + generic noun"
   },
   {
-    pattern: /\b(tmp|temp|temporary|wip|draft)\b/i,
-    score: 25,
-    description: "Contains temporary/WIP indicators"
+    pattern: /\b(tmp|temp|temporary|wip|draft|asap|urgent|quick|fast|hack|fixme|todo)\b/i,
+    score: 30,
+    description: "Contains temporary/WIP/rush indicators"
+  },
+  {
+    pattern: /^(pls|please|help|need|wanted|required|required|needed)$/i,
+    score: 50,
+    description: "Non-descriptive request word"
   }
 ];
+var BRANCH_NAME_PATTERNS = [
+  {
+    pattern: /^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert|hotfix)\/.+$/i,
+    score: 0,
+    description: "Branch-style title with type prefix (e.g., 'Feat/feature-name')",
+    triggerAI: true
+  },
+  {
+    pattern: /^[A-Za-z]+(-[A-Za-z]+)+$/,
+    score: 0,
+    description: "Kebab-case title without spaces (likely branch name)",
+    triggerAI: true
+  },
+  {
+    pattern: /^[A-Za-z]+(_[A-Za-z]+)+$/,
+    score: 0,
+    description: "Underscore-style title without spaces (likely branch name)",
+    triggerAI: true
+  }
+];
+var ALL_VAGUE_PATTERNS = [...DEFAULT_VAGUE_PATTERNS, ...BRANCH_NAME_PATTERNS];
 
 class PRTitleEnhancer {
   patterns;
-  constructor(customPatterns) {
-    this.patterns = customPatterns ?? DEFAULT_VAGUE_PATTERNS;
+  threshold;
+  constructor(options) {
+    this.patterns = ALL_VAGUE_PATTERNS;
+    this.threshold = options?.threshold ?? 40;
   }
   analyze(title, diff, files) {
-    const { score, reasons } = this.calculateVaguenessScore(title);
-    const threshold = 70;
-    if (score < threshold) {
+    const { score, reasons, needsAI } = this.calculateVaguenessScore(title);
+    if (score >= 60) {
+      const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+      return { isVague: true, score, reason: reasons.join("; "), suggestedTitle };
+    }
+    if (needsAI && score < this.threshold) {
       return {
         isVague: false,
         score,
-        reason: reasons.join("; ") || "Title is descriptive enough"
+        reason: reasons.join("; "),
+        needsAIEvaluation: true
       };
     }
-    const suggestedTitle = this.generateImprovedTitle(title, diff, files);
-    return {
-      isVague: true,
-      score,
-      reason: reasons.join("; "),
-      suggestedTitle
-    };
+    if (score >= this.threshold) {
+      const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+      return { isVague: true, score, reason: reasons.join("; "), suggestedTitle };
+    }
+    return { isVague: false, score, reason: "Title is descriptive enough" };
   }
   calculateVaguenessScore(title) {
     let score = 0;
     const reasons = [];
+    let needsAI = false;
     const matchedPatterns = new Set;
-    for (const { pattern, score: points, description } of this.patterns) {
+    for (const { pattern, score: points, description, triggerAI } of this.patterns) {
       if (pattern.test(title) && !matchedPatterns.has(description)) {
-        score += points;
-        reasons.push(description);
+        if (triggerAI) {
+          needsAI = true;
+          reasons.push(description);
+        } else {
+          score += points;
+          reasons.push(description);
+        }
         matchedPatterns.add(description);
       }
     }
@@ -77139,7 +77248,7 @@ class PRTitleEnhancer {
       score += 10;
       reasons.push("Multiple generic action words");
     }
-    return { score: Math.min(score, 100), reasons };
+    return { score: Math.min(score, 100), reasons, needsAI };
   }
   generateImprovedTitle(originalTitle, diff, files) {
     const fileContexts = this.extractFileContexts(files);
@@ -77993,6 +78102,7 @@ function getInputs() {
   }
   const prSizeWarning = Number.parseInt(core5.getInput("pr_size_warning") || "500", 10);
   const prSizeBlock = Number.parseInt(core5.getInput("pr_size_block") || "2000", 10);
+  const vaguenessThreshold = Number.parseInt(core5.getInput("vagueness_threshold") || "40", 10);
   return {
     apiKey: core5.getInput("api_key", { required: true }),
     model,
@@ -78004,6 +78114,7 @@ function getInputs() {
     ticketPattern: core5.getInput("ticket_pattern") || undefined,
     ticketUrlTemplate: core5.getInput("ticket_url_template") || undefined,
     autoUpdateTitle: core5.getInput("auto_update_title") === "true",
+    vaguenessThreshold,
     customPlaceholders,
     prSizeWarning,
     prSizeBlock
@@ -78142,16 +78253,35 @@ async function run() {
     let enhancedTitle = "";
     if (inputs.autoUpdateTitle) {
       core5.info("Analyzing PR title for vagueness...");
-      const titleEnhancer = new PRTitleEnhancer;
+      const titleEnhancer = new PRTitleEnhancer({ threshold: inputs.vaguenessThreshold });
       const titleResult = titleEnhancer.analyze(prContext.title, processedDiff, changedFiles);
       if (titleResult.isVague && titleResult.suggestedTitle) {
-        core5.info(`Title is vague (score: ${titleResult.score}%). Reason: ${titleResult.reason}`);
         enhancedTitle = titleResult.suggestedTitle;
         try {
           await updatePRTitle(octokit, prContext, enhancedTitle);
           core5.info(`✓ PR title updated: "${prContext.title}" -> "${enhancedTitle}"`);
         } catch (error41) {
           core5.warning(`Failed to update PR title: ${error41}`);
+        }
+      } else if (titleResult.needsAIEvaluation) {
+        core5.info("Title looks like branch name, using AI to evaluate...");
+        const ticketRef = tickets.length > 0 ? tickets[0]?.id ?? undefined : undefined;
+        const aiResult = await evaluatePRTitle(prContext.title, changedFiles, {
+          provider: inputs.provider,
+          apiKey: inputs.apiKey,
+          model: inputs.model,
+          ticketRef
+        });
+        if (aiResult.isVague && aiResult.suggestedTitle) {
+          enhancedTitle = aiResult.suggestedTitle;
+          try {
+            await updatePRTitle(octokit, prContext, enhancedTitle);
+            core5.info(`✓ PR title updated via AI: "${prContext.title}" -> "${enhancedTitle}"`);
+          } catch (error41) {
+            core5.warning(`Failed to update PR title: ${error41}`);
+          }
+        } else {
+          core5.info(`AI says title is good: ${aiResult.reason}`);
         }
       } else {
         core5.info(`Title is descriptive enough (score: ${titleResult.score}%)`);

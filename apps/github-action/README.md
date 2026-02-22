@@ -119,7 +119,39 @@ jobs:
 
 ## PR Title Enhancement
 
-Enable `auto_update_title` to automatically improve vague PR titles:
+Uses a **hybrid pattern + AI approach** for cost optimization:
+
+```
+PR Title → Pattern Check → (vague?) → Rename immediately (no AI)
+                    ↓
+              Branch Name? → AI evaluates → Rename if needed
+                    ↓
+              Descriptive? → Keep title
+```
+
+### Cost Optimization
+
+| Scenario | AI Call? | Tokens | Cost |
+|----------|----------|--------|------|
+| `fixes`, `wip` (obvious) | ❌ No | 0 | **$0** |
+| `Add login button` (descriptive) | ❌ No | 0 | **$0** |
+| `feat/auth-integration` (branch name) | ✅ Yes | ~300 | **~$0.001** |
+
+**~80% of PRs require no AI call.** When AI is needed, it uses ~10x fewer tokens than full summary generation.
+
+### Branch Name Detection
+
+Titles derived from branch names trigger AI evaluation:
+
+| Branch Name | PR Title | Action |
+|-------------|----------|--------|
+| `feat/auth-integration` | `Feat/auth-integration` | AI evaluates |
+| `fix-null-pointer` | `Fix-null-pointer` | AI evaluates |
+| `auth_integration` | `Auth_integration` | AI evaluates |
+
+Patterns detected: `feat/*`, `fix/*`, `chore/*`, kebab-case, underscore-style.
+
+### Usage
 
 ```yaml
 - uses: elvis-ndubuisi/lazypr@v1
@@ -133,7 +165,7 @@ Enable `auto_update_title` to automatically improve vague PR titles:
 
 | Threshold | Behavior |
 |-----------|----------|
-| `40` (default) | Aggressive - catches "fixes", "updates", "wip", "hotfix" |
+| `40` (default) | Aggressive - catches "fixes", "updates", "wip", "hotfix", branch names |
 | `60` | Moderate - very generic titles only |
 | `70` | Lenient - only extremely vague titles |
 
@@ -142,7 +174,7 @@ Enable `auto_update_title` to automatically improve vague PR titles:
 | Before | After |
 |--------|-------|
 | `fixes` | `Fix authentication token validation in auth service` |
-| `updates` | `Update user profile component with avatar support` |
+| `feat/auth-integration` | `Add JWT authentication to login flow` |
 | `wip` | `Update checkout flow with payment integration` |
 
 ## Templates

@@ -288,6 +288,7 @@ export * from "./types.js";
 export * from "./impact-scorer.js";
 export * from "./summarizer.js";
 export * from "./checklist-generator.js";
+export * from "./title-evaluator.js";
 export { createLangChainProvider, createLLM, getProviderInfo } from "./langchain-provider.js";
 export { createGeminiProvider, createGeminiProProvider } from "./gemini-provider.js";
 export { generatePRSummarForGemini, createGeminiFlashProvider } from "./gemini-summarizer.js";

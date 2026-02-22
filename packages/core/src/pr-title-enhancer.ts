@@ -14,6 +14,8 @@ export interface TitleEnhancementResult {
   reason: string;
   /** Suggested improved title (only if vague) */
   suggestedTitle?: string;
+  /** Whether AI evaluation is needed (for borderline cases like branch names) */
+  needsAIEvaluation?: boolean;
 }
 
 export interface PRTitleEnhancerOptions {
@@ -28,6 +30,8 @@ interface VaguenessPattern {
   score: number;
   /** Description of why this is vague */
   description: string;
+  /** If true, triggers AI evaluation instead of pattern-based rename */
+  triggerAI?: boolean;
 }
 
 /**
@@ -68,6 +72,34 @@ const DEFAULT_VAGUE_PATTERNS: VaguenessPattern[] = [
 ];
 
 /**
+ * Branch-name detection patterns
+ * These don't auto-rename but trigger AI evaluation for borderline cases
+ */
+const BRANCH_NAME_PATTERNS: VaguenessPattern[] = [
+  {
+    pattern: /^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert|hotfix)\/.+$/i,
+    score: 0,
+    description: "Branch-style title with type prefix (e.g., 'Feat/feature-name')",
+    triggerAI: true,
+  },
+  {
+    pattern: /^[A-Za-z]+(-[A-Za-z]+)+$/,
+    score: 0,
+    description: "Kebab-case title without spaces (likely branch name)",
+    triggerAI: true,
+  },
+  {
+    pattern: /^[A-Za-z]+(_[A-Za-z]+)+$/,
+    score: 0,
+    description: "Underscore-style title without spaces (likely branch name)",
+    triggerAI: true,
+  },
+];
+
+/** Combined patterns for title analysis */
+const ALL_VAGUE_PATTERNS = [...DEFAULT_VAGUE_PATTERNS, ...BRANCH_NAME_PATTERNS];
+
+/**
  * Analyzes a PR title for vagueness and suggests improvements
  *
  * @example
@@ -84,7 +116,7 @@ export class PRTitleEnhancer {
   private threshold: number;
 
   constructor(options?: PRTitleEnhancerOptions) {
-    this.patterns = DEFAULT_VAGUE_PATTERNS;
+    this.patterns = ALL_VAGUE_PATTERNS;
     this.threshold = options?.threshold ?? 40;
   }
 
@@ -97,40 +129,57 @@ export class PRTitleEnhancer {
    * @returns Analysis result with score and suggestion
    */
   analyze(title: string, diff: string, files: string[]): TitleEnhancementResult {
-    const { score, reasons } = this.calculateVaguenessScore(title);
+    const { score, reasons, needsAI } = this.calculateVaguenessScore(title);
 
-    if (score < this.threshold) {
+    // Score >= 60: Obviously vague, rename immediately (no AI cost)
+    if (score >= 60) {
+      const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+      return { isVague: true, score, reason: reasons.join("; "), suggestedTitle };
+    }
+
+    // Branch-name style with low pattern score: needs AI evaluation
+    if (needsAI && score < this.threshold) {
       return {
         isVague: false,
         score,
-        reason: reasons.join("; ") || "Title is descriptive enough",
+        reason: reasons.join("; "),
+        needsAIEvaluation: true,
       };
     }
 
-    const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+    // Pattern-based decision (threshold check)
+    if (score >= this.threshold) {
+      const suggestedTitle = this.generateImprovedTitle(title, diff, files);
+      return { isVague: true, score, reason: reasons.join("; "), suggestedTitle };
+    }
 
-    return {
-      isVague: true,
-      score,
-      reason: reasons.join("; "),
-      suggestedTitle,
-    };
+    return { isVague: false, score, reason: "Title is descriptive enough" };
   }
 
   /**
    * Calculates the vagueness score (0-100)
    * Score >= threshold means the title is considered vague
    */
-  private calculateVaguenessScore(title: string): { score: number; reasons: string[] } {
+  private calculateVaguenessScore(title: string): {
+    score: number;
+    reasons: string[];
+    needsAI: boolean;
+  } {
     let score = 0;
     const reasons: string[] = [];
+    let needsAI = false;
     const matchedPatterns = new Set<string>();
 
     // Check each pattern
-    for (const { pattern, score: points, description } of this.patterns) {
+    for (const { pattern, score: points, description, triggerAI } of this.patterns) {
       if (pattern.test(title) && !matchedPatterns.has(description)) {
-        score += points;
-        reasons.push(description);
+        if (triggerAI) {
+          needsAI = true;
+          reasons.push(description);
+        } else {
+          score += points;
+          reasons.push(description);
+        }
         matchedPatterns.add(description);
       }
     }
@@ -151,7 +200,7 @@ export class PRTitleEnhancer {
     }
 
     // Cap at 100
-    return { score: Math.min(score, 100), reasons };
+    return { score: Math.min(score, 100), reasons, needsAI };
   }
 
   /**
